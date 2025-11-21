@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mini SIEM Dashboard</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    h1 { margin-bottom: 0.5rem; }
+    table { border-collapse: collapse; margin: 1rem 0; min-width: 300px; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+    th { background: #eee; }
+    .small { font-size: 0.85rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Mini SIEM Dashboard</h1>
+  <div class="small">Data from traffic.log</div>
+
+  <h2>Top Source IPs</h2>
+  <table id="ipTable">
+    <thead><tr><th>IP</th><th>Count</th><th>Last Seen (UTC)</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Top Destination Ports</h2>
+  <table id="portTable">
+    <thead><tr><th>Port</th><th>Count</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+const API_BASE = "https://signaltrap.fly.dev";
+
+  const ALERT_THRESHOLD = 10; 
+
+  async function loadStats() {
+    const res = await fetch(`${API_BASE}/api/stats`);
+    const data = await res.json();
+
+    const ipBody = document.querySelector('#ipTable tbody');
+    const portBody = document.querySelector('#portTable tbody');
+    ipBody.innerHTML = '';
+    portBody.innerHTML = '';
+
+    const ipCounts = data.ipCounts || {};
+    const lastSeen = data.lastSeen || {};
+
+    Object.entries(ipCounts).forEach(([ip, count]) => {
+      const tr = document.createElement('tr');
+      if (count >= ALERT_THRESHOLD) {
+        tr.style.backgroundColor = '#fdd';
+      }
+      const tdIp = document.createElement('td');
+      const tdCount = document.createElement('td');
+      const tdLast = document.createElement('td');
+      tdIp.textContent = ip;
+      tdCount.textContent = count;
+      tdLast.textContent = lastSeen[ip] || '';
+      tr.append(tdIp, tdCount, tdLast);
+      ipBody.appendChild(tr);
+    });
+
+    const portCounts = data.portCounts || {};
+    Object.entries(portCounts).forEach(([port, count]) => {
+      const tr = document.createElement('tr');
+      const tdPort = document.createElement('td');
+      const tdCount = document.createElement('td');
+      tdPort.textContent = port;
+      tdCount.textContent = count;
+      tr.append(tdPort, tdCount);
+      portBody.appendChild(tr);
+    });
+  }
+
+  loadStats();
+  setInterval(loadStats, 5000);
+</script>
+
+
+</body>
+</html>
