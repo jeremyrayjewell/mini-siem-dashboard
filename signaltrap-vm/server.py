@@ -3,13 +3,55 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 import json
 import os
+import atexit
+from threading import Lock
 
 app = Flask(__name__)
 CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
 
-# Store attack logs in memory
-attacks = []
+# Configuration
 MAX_LOGS = 10000
+LOG_RETENTION_DAYS = 7
+ATTACKS_FILE = '/data/attacks.json'
+
+# Store attack logs in memory with thread-safe access
+attacks = []
+attacks_lock = Lock()
+
+# Load existing attacks from file on startup
+def load_attacks():
+    global attacks
+    if os.path.exists(ATTACKS_FILE):
+        try:
+            with open(ATTACKS_FILE, 'r') as f:
+                loaded = json.load(f)
+                # Filter out attacks older than retention period
+                cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
+                attacks = [a for a in loaded if a['timestamp'] > cutoff]
+                print(f"Loaded {len(attacks)} attacks from disk")
+        except Exception as e:
+            print(f"Error loading attacks: {e}")
+            attacks = []
+    else:
+        # Create /data directory if it doesn't exist
+        os.makedirs(os.path.dirname(ATTACKS_FILE), exist_ok=True)
+        attacks = []
+
+# Save attacks to file
+def save_attacks():
+    try:
+        with attacks_lock:
+            with open(ATTACKS_FILE, 'w') as f:
+                json.dump(attacks, f)
+        print(f"Saved {len(attacks)} attacks to disk")
+    except Exception as e:
+        print(f"Error saving attacks: {e}")
+
+# Save on shutdown
+atexit.register(save_attacks)
+
+# Load attacks on startup
+load_attacks()
 
 # Middleware to log all requests
 @app.before_request
@@ -22,9 +64,14 @@ def log_request():
         'user_agent': request.headers.get('User-Agent', ''),
         'headers': dict(request.headers)
     }
-    attacks.append(attack)
-    if len(attacks) > MAX_LOGS:
-        attacks.pop(0)
+    with attacks_lock:
+        attacks.append(attack)
+        if len(attacks) > MAX_LOGS:
+            attacks.pop(0)
+    
+    # Save to disk every 10 attacks
+    if len(attacks) % 10 == 0:
+        save_attacks()
 
 # API endpoint for dashboard
 @app.route('/api/stats')
