@@ -56,6 +56,10 @@ load_attacks()
 # Middleware to log all requests
 @app.before_request
 def log_request():
+    # Skip logging requests to /api/stats (dashboard polling)
+    if request.path == '/api/stats':
+        return
+    
     attack = {
         'timestamp': datetime.utcnow().isoformat(),
         'ip': request.headers.get('X-Forwarded-For', request.remote_addr),
