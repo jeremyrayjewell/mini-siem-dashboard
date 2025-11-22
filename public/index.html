@@ -24,7 +24,7 @@
 
   <h2>Top Destination Ports</h2>
   <table id="portTable">
-    <thead><tr><th>Port</th><th>Count</th></tr></thead>
+    <thead><tr><th>Path</th><th>Count</th></tr></thead>
     <tbody></tbody>
   </table>
 
@@ -42,31 +42,31 @@ const API_BASE = "https://signaltrap.fly.dev";
     ipBody.innerHTML = '';
     portBody.innerHTML = '';
 
-    const ipCounts = data.ipCounts || {};
-    const lastSeen = data.lastSeen || {};
-
-    Object.entries(ipCounts).forEach(([ip, count]) => {
+    // Handle topIPs array format
+    const topIPs = data.topIPs || [];
+    topIPs.forEach(item => {
       const tr = document.createElement('tr');
-      if (count >= ALERT_THRESHOLD) {
+      if (item.count >= ALERT_THRESHOLD) {
         tr.style.backgroundColor = '#fdd';
       }
       const tdIp = document.createElement('td');
       const tdCount = document.createElement('td');
       const tdLast = document.createElement('td');
-      tdIp.textContent = ip;
-      tdCount.textContent = count;
-      tdLast.textContent = lastSeen[ip] || '';
+      tdIp.textContent = item.ip;
+      tdCount.textContent = item.count;
+      tdLast.textContent = ''; // No timestamp in current API
       tr.append(tdIp, tdCount, tdLast);
       ipBody.appendChild(tr);
     });
 
-    const portCounts = data.portCounts || {};
-    Object.entries(portCounts).forEach(([port, count]) => {
+    // Handle topPaths array format - display as "ports"
+    const topPaths = data.topPaths || [];
+    topPaths.forEach(item => {
       const tr = document.createElement('tr');
       const tdPort = document.createElement('td');
       const tdCount = document.createElement('td');
-      tdPort.textContent = port;
-      tdCount.textContent = count;
+      tdPort.textContent = item.path;
+      tdCount.textContent = item.count;
       tr.append(tdPort, tdCount);
       portBody.appendChild(tr);
     });
