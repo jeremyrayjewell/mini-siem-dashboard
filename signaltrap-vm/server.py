@@ -89,12 +89,21 @@ def get_stats():
     
     recent_attacks = [a for a in attacks if datetime.fromisoformat(a['timestamp']) > last_24h]
     
-    # Get top IPs
-    ip_counts = {}
+    # Get top IPs with last seen timestamp
+    ip_data = {}
     for attack in attacks:
         ip = attack['ip']
-        ip_counts[ip] = ip_counts.get(ip, 0) + 1
-    top_ips = sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        if ip not in ip_data:
+            ip_data[ip] = {'count': 0, 'last_seen': attack['timestamp']}
+        ip_data[ip]['count'] += 1
+        # Update last seen if this attack is more recent
+        if attack['timestamp'] > ip_data[ip]['last_seen']:
+            ip_data[ip]['last_seen'] = attack['timestamp']
+    
+    top_ips = [
+        {'ip': ip, 'count': data['count'], 'last_seen': data['last_seen']} 
+        for ip, data in sorted(ip_data.items(), key=lambda x: x[1]['count'], reverse=True)[:10]
+    ]
     
     # Get top paths
     path_counts = {}
@@ -106,7 +115,7 @@ def get_stats():
     stats = {
         'totalAttacks': len(attacks),
         'last24h': len(recent_attacks),
-        'topIPs': [{'ip': ip, 'count': count} for ip, count in top_ips],
+        'topIPs': top_ips,
         'topPaths': [{'path': path, 'count': count} for path, count in top_paths],
         'recentAttacks': list(reversed(attacks[-50:]))
     }
