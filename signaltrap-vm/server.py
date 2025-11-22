@@ -113,6 +113,15 @@ def get_stats():
     
     return jsonify(stats)
 
+# Admin endpoint to clear logs
+@app.route('/api/clear-logs', methods=['POST'])
+def clear_logs():
+    global attacks
+    with attacks_lock:
+        attacks.clear()
+    save_attacks()
+    return jsonify({'status': 'cleared', 'message': 'All logs cleared successfully'})
+
 # Fake WordPress admin
 @app.route('/wp-admin')
 def wp_admin():
