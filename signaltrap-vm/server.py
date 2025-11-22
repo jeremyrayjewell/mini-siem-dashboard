@@ -60,9 +60,13 @@ def log_request():
     if request.path == '/api/stats':
         return
     
+    # Get real client IP (first IP in X-Forwarded-For chain)
+    forwarded_for = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
+    
     attack = {
         'timestamp': datetime.utcnow().isoformat(),
-        'ip': request.headers.get('X-Forwarded-For', request.remote_addr),
+        'ip': client_ip,
         'method': request.method,
         'path': request.path,
         'user_agent': request.headers.get('User-Agent', ''),
