@@ -28,6 +28,12 @@
     <tbody></tbody>
   </table>
 
+  <h2>Recent Attacks</h2>
+  <table id="attackTable">
+    <thead><tr><th>Time (UTC)</th><th>IP</th><th>Path</th><th>Method</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
 <script>
 const API_BASE = "https://signaltrap.fly.dev";
 
@@ -39,8 +45,10 @@ const API_BASE = "https://signaltrap.fly.dev";
 
     const ipBody = document.querySelector('#ipTable tbody');
     const portBody = document.querySelector('#portTable tbody');
+    const attackBody = document.querySelector('#attackTable tbody');
     ipBody.innerHTML = '';
     portBody.innerHTML = '';
+    attackBody.innerHTML = '';
 
     // Handle topIPs array format
     const topIPs = data.topIPs || [];
@@ -69,6 +77,26 @@ const API_BASE = "https://signaltrap.fly.dev";
       tdCount.textContent = item.count;
       tr.append(tdPort, tdCount);
       portBody.appendChild(tr);
+    });
+
+    // Display recent attacks (last 20)
+    const recentAttacks = data.recentAttacks || [];
+    recentAttacks.slice(0, 20).forEach(attack => {
+      const tr = document.createElement('tr');
+      const tdTime = document.createElement('td');
+      const tdIp = document.createElement('td');
+      const tdPath = document.createElement('td');
+      const tdMethod = document.createElement('td');
+      
+      // Format timestamp to show just time
+      const timestamp = new Date(attack.timestamp);
+      tdTime.textContent = timestamp.toISOString().substring(11, 19);
+      tdIp.textContent = attack.ip;
+      tdPath.textContent = attack.path;
+      tdMethod.textContent = attack.method;
+      
+      tr.append(tdTime, tdIp, tdPath, tdMethod);
+      attackBody.appendChild(tr);
     });
   }
 
