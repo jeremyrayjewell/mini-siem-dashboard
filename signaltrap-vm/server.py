@@ -113,26 +113,10 @@ atexit.register(save_tcp_events)
 load_attacks()
 load_tcp_events()
 
-# Middleware to ensure TCP listeners start and log requests
+# Middleware to log requests
 @app.before_request
 def before_request_handler():
-    # Start TCP listeners on first request
-    global _listeners_started
     print(f"[FLASK DEBUG] before_request called for {request.path}")
-    print(f"[FLASK DEBUG] _listeners_started = {_listeners_started}")
-    with _listeners_lock:
-        if not _listeners_started:
-            print("[FLASK] Starting TCP listeners on first request...")
-            try:
-                start_tcp_listeners()
-                _listeners_started = True
-                print("[FLASK] TCP listeners started!")
-            except Exception as e:
-                print(f"[FLASK ERROR] Failed to start TCP listeners: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("[FLASK DEBUG] Listeners already started, skipping")
     
     # Log requests (skip /api/stats and /favicon.ico)
     if request.path in ['/api/stats', '/favicon.ico']:
@@ -600,3 +584,14 @@ if __name__ == '__main__':
     # Start Flask app
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
+
+# Start TCP listeners when module is imported by gunicorn
+# This runs AFTER all classes are defined
+print("[FLASK] Starting TCP listeners at module level...")
+try:
+    start_tcp_listeners()
+    print("[FLASK] TCP listeners started at module level!")
+except Exception as e:
+    print(f"[FLASK ERROR] Failed to start TCP listeners: {e}")
+    import traceback
+    traceback.print_exc()
