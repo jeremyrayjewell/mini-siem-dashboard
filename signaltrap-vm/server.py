@@ -13,6 +13,10 @@ import time
 app = Flask(__name__)
 CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
 
+# Flag to track if listeners have been started
+_listeners_started = False
+_listeners_lock = Lock()
+
 # Configuration
 MAX_LOGS = 10000
 LOG_RETENTION_DAYS = 7
@@ -108,6 +112,17 @@ atexit.register(save_tcp_events)
 # Load data on startup
 load_attacks()
 load_tcp_events()
+
+# Middleware to ensure TCP listeners start on first request
+@app.before_request
+def ensure_tcp_listeners():
+    global _listeners_started
+    with _listeners_lock:
+        if not _listeners_started:
+            print("[FLASK] Starting TCP listeners on first request...")
+            start_tcp_listeners()
+            _listeners_started = True
+            print("[FLASK] TCP listeners started!")
 
 # Middleware to log all requests
 @app.before_request
@@ -572,9 +587,6 @@ def index():
         </body>
         </html>
     ''', timestamp=datetime.utcnow().isoformat())
-
-# Start TCP listeners when module loads (works with gunicorn)
-start_tcp_listeners()
 
 if __name__ == '__main__':
     # Start Flask app
