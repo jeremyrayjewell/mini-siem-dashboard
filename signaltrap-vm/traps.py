@@ -115,7 +115,7 @@ class TrapService:
         self.running = True
         
     def log_event(self, event_data):
-        """Log an event and save to disk immediately"""
+        """Log an event to memory (saved to disk by background thread)"""
         try:
             event = {
                 'timestamp': datetime.utcnow().isoformat(),
@@ -130,8 +130,6 @@ class TrapService:
                 tcp_events.append(event)
                 if len(tcp_events) > MAX_LOGS:
                     tcp_events.pop(0)
-                # Save immediately on every event so separate processes can see it
-                save_tcp_events()
             
             print(f"[{self.protocol}:{self.port}] {event_data}")
         except Exception as e:
@@ -382,8 +380,24 @@ class RDPTrap(TrapService):
         finally:
             client.close()
 
+def background_saver():
+    """Background thread to save events to disk periodically"""
+    while True:
+        try:
+            time.sleep(5)
+            save_tcp_events()
+        except Exception as e:
+            print(f"[ERROR] Background saver failed: {e}", file=sys.stderr)
+            traceback.print_exc()
+
 def start_tcp_listeners():
     """Start all TCP listener services in background threads"""
+    # Start background saver
+    saver_thread = threading.Thread(target=background_saver)
+    saver_thread.daemon = True
+    saver_thread.start()
+    print("[LISTENERS] Started background event saver thread")
+
     services = [
         SSHTrap(),
         FTPTrap(),
