@@ -113,9 +113,10 @@ atexit.register(save_tcp_events)
 load_attacks()
 load_tcp_events()
 
-# Middleware to ensure TCP listeners start on first request
+# Middleware to ensure TCP listeners start and log requests
 @app.before_request
-def ensure_tcp_listeners():
+def before_request_handler():
+    # Start TCP listeners on first request
     global _listeners_started
     print(f"[FLASK DEBUG] before_request called for {request.path}")
     with _listeners_lock:
@@ -126,11 +127,8 @@ def ensure_tcp_listeners():
             print("[FLASK] TCP listeners started!")
         else:
             print("[FLASK DEBUG] Listeners already started, skipping")
-
-# Middleware to log all requests
-@app.before_request
-def log_request():
-    # Skip logging requests to /api/stats (dashboard polling) and favicon
+    
+    # Log requests (skip /api/stats and /favicon.ico)
     if request.path in ['/api/stats', '/favicon.ico']:
         return
     
