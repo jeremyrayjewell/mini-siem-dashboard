@@ -56,8 +56,8 @@ load_attacks()
 # Middleware to log all requests
 @app.before_request
 def log_request():
-    # Skip logging requests to /api/stats (dashboard polling)
-    if request.path == '/api/stats':
+    # Skip logging requests to /api/stats (dashboard polling) and favicon
+    if request.path in ['/api/stats', '/favicon.ico']:
         return
     
     # Get real client IP (first IP in X-Forwarded-For chain)
