@@ -297,7 +297,7 @@ class TrapService:
         self.running = True
         
     def log_event(self, event_data):
-        """Log an event"""
+        """Log an event and save to disk immediately"""
         event = {
             'timestamp': datetime.utcnow().isoformat(),
             'protocol': self.protocol,
@@ -309,8 +309,8 @@ class TrapService:
             tcp_events.append(event)
             if len(tcp_events) > MAX_LOGS:
                 tcp_events.pop(0)
-            if len(tcp_events) % 10 == 0:
-                save_tcp_events()
+            # Save immediately on every event so separate processes can see it
+            save_tcp_events()
         
         print(f"[{self.protocol}:{self.port}] {event_data}")
     
