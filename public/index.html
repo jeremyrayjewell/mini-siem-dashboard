@@ -127,7 +127,16 @@
   </div>
 
 <script>
-const API_BASE = "https://signaltrap.fly.dev";
+// Use production API by default, but prefer local backend when running locally
+const API_BASE = (function(){
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    // local dev: assume Flask runs on 8080
+    return 'http://localhost:8080';
+  }
+  // Production (Netlify) should call the Fly app
+  return 'https://signaltrap.fly.dev';
+})();
 const ALERT_THRESHOLD = 10;
 
 // Initialize map

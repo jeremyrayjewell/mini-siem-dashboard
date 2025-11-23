@@ -5,10 +5,25 @@ import json
 import os
 import atexit
 from threading import Lock
-from traps import tcp_events, tcp_events_lock, load_tcp_events
+from traps import tcp_events, tcp_events_lock, load_tcp_events, start_tcp_listeners as _traps_start_tcp_listeners
 
 app = Flask(__name__)
-CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
+app = Flask(__name__)
+# Allow the production Netlify origin and common local dev origins so the UI can call /api/stats
+CORS(app, resources={r"/api/*": {"origins": [
+    "https://mini-siem-dashboard.netlify.app",
+    "https://signaltrap.fly.dev",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "*"
+]}})
+
+# Expose a lightweight wrapper so gunicorn hooks (or other starters) can call start_tcp_listeners()
+def start_tcp_listeners():
+    """Wrapper that calls the traps module starter (kept here for compatibility with gunicorn hooks)."""
+    return _traps_start_tcp_listeners()
 
 MAX_LOGS = 10000
 LOG_RETENTION_DAYS = 7
