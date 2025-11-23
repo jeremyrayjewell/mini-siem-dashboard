@@ -1,5 +1,7 @@
 """Gunicorn configuration file"""
 
+print("[GUNICORN CONFIG] Configuration file loaded!")
+
 # Don't preload the app
 preload_app = False
 
