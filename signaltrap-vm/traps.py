@@ -392,6 +392,9 @@ def background_saver():
 
 def start_tcp_listeners():
     """Start all TCP listener services in background threads"""
+    # Load existing events on first start
+    load_tcp_events()
+    
     # Start background saver
     saver_thread = threading.Thread(target=background_saver)
     saver_thread.daemon = True
@@ -414,6 +417,3 @@ def start_tcp_listeners():
         thread.daemon = True
         thread.start()
         print(f"Started {service.protocol} listener on port {service.port}")
-
-# Initialize data on import
-load_tcp_events()
