@@ -344,16 +344,17 @@ class TrapService:
                     client, addr = server.accept()
                     client.settimeout(CONNECTION_TIMEOUT)
                     
-                    if is_rate_limited(addr[0]):
-                        print(f"[!] Rate limited: {addr[0]}")
-                        client.close()
-                        continue
-                    
+                    # Log connection BEFORE rate limit check so we see all attempts
                     self.log_event({
                         'ip': addr[0],
                         'event_type': 'connection',
                         'message': f'Connection from {addr[0]}:{addr[1]}'
                     })
+                    
+                    if is_rate_limited(addr[0]):
+                        print(f"[!] Rate limited: {addr[0]}")
+                        client.close()
+                        continue
                     
                     client_thread = threading.Thread(
                         target=self.handle_client,
