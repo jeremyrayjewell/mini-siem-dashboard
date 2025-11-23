@@ -87,11 +87,33 @@ def get_stats():
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
     
-    recent_attacks = [a for a in attacks if datetime.fromisoformat(a['timestamp']) > last_24h]
+    # Combine HTTP attacks with honeypot events
+    all_events = list(attacks)  # HTTP events
+    
+    # Load honeypot events if they exist
+    honeypot_file = '/data/honeypot_events.json'
+    if os.path.exists(honeypot_file):
+        try:
+            with open(honeypot_file, 'r') as f:
+                honeypot_events = json.load(f)
+                # Convert honeypot events to attack format
+                for event in honeypot_events:
+                    all_events.append({
+                        'timestamp': event['timestamp'],
+                        'ip': event.get('ip', 'unknown'),
+                        'method': event.get('protocol', 'TCP'),
+                        'path': f":{event.get('port', 0)} {event.get('protocol', 'unknown')}",
+                        'user_agent': event.get('message', ''),
+                        'headers': {}
+                    })
+        except Exception as e:
+            print(f"Error loading honeypot events: {e}")
+    
+    recent_attacks = [a for a in all_events if datetime.fromisoformat(a['timestamp']) > last_24h]
     
     # Get top IPs with last seen timestamp
     ip_data = {}
-    for attack in attacks:
+    for attack in all_events:
         ip = attack['ip']
         if ip not in ip_data:
             ip_data[ip] = {'count': 0, 'last_seen': attack['timestamp']}
@@ -105,19 +127,19 @@ def get_stats():
         for ip, data in sorted(ip_data.items(), key=lambda x: x[1]['count'], reverse=True)[:10]
     ]
     
-    # Get top paths
+    # Get top paths/protocols
     path_counts = {}
-    for attack in attacks:
+    for attack in all_events:
         path = attack['path']
         path_counts[path] = path_counts.get(path, 0) + 1
     top_paths = sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:10]
     
     stats = {
-        'totalAttacks': len(attacks),
+        'totalAttacks': len(all_events),
         'last24h': len(recent_attacks),
         'topIPs': top_ips,
         'topPaths': [{'path': path, 'count': count} for path, count in top_paths],
-        'recentAttacks': list(reversed(attacks[-50:]))
+        'recentAttacks': list(reversed(all_events[-50:]))
     }
     
     return jsonify(stats)

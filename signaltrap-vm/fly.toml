@@ -17,6 +17,63 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
+# Additional services for honeypot protocols
+[[services]]
+  internal_port = 22
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 22
+
+[[services]]
+  internal_port = 21
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 21
+
+[[services]]
+  internal_port = 23
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 23
+
+[[services]]
+  internal_port = 3306
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 3306
+
+[[services]]
+  internal_port = 5432
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 5432
+
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 6379
+
+[[services]]
+  internal_port = 27017
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 27017
+
+[[services]]
+  internal_port = 3389
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 3389
+
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
