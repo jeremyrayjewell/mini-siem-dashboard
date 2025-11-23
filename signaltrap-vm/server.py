@@ -5,6 +5,10 @@ import json
 import os
 import atexit
 from threading import Lock
+import socket
+import threading
+from collections import defaultdict
+import time
 
 app = Flask(__name__)
 CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
@@ -13,10 +17,37 @@ CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
 MAX_LOGS = 10000
 LOG_RETENTION_DAYS = 7
 ATTACKS_FILE = '/data/attacks.json'
+TCP_EVENTS_FILE = '/data/tcp_events.json'
+
+# Rate limiting for TCP listeners
+RATE_LIMIT_WINDOW = 300  # 5 minutes
+MAX_CONNECTIONS_PER_IP = 3  # Only 3 connections per 5 minutes
+CONNECTION_TIMEOUT = 2  # Seconds
+MAX_DATA_SIZE = 512  # Bytes
 
 # Store attack logs in memory with thread-safe access
 attacks = []
 attacks_lock = Lock()
+
+# TCP events
+tcp_events = []
+tcp_events_lock = Lock()
+
+# Rate limiting
+connection_counts = defaultdict(list)
+rate_limit_lock = Lock()
+
+def is_rate_limited(ip):
+    """Check if an IP is rate limited"""
+    with rate_limit_lock:
+        now = time.time()
+        connection_counts[ip] = [t for t in connection_counts[ip] if now - t < RATE_LIMIT_WINDOW]
+        
+        if len(connection_counts[ip]) >= MAX_CONNECTIONS_PER_IP:
+            return True
+        
+        connection_counts[ip].append(now)
+        return False
 
 # Load existing attacks from file on startup
 def load_attacks():
@@ -25,17 +56,31 @@ def load_attacks():
         try:
             with open(ATTACKS_FILE, 'r') as f:
                 loaded = json.load(f)
-                # Filter out attacks older than retention period
                 cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
                 attacks = [a for a in loaded if a['timestamp'] > cutoff]
-                print(f"Loaded {len(attacks)} attacks from disk")
+                print(f"Loaded {len(attacks)} HTTP events from disk")
         except Exception as e:
             print(f"Error loading attacks: {e}")
             attacks = []
     else:
-        # Create /data directory if it doesn't exist
         os.makedirs(os.path.dirname(ATTACKS_FILE), exist_ok=True)
         attacks = []
+
+def load_tcp_events():
+    global tcp_events
+    if os.path.exists(TCP_EVENTS_FILE):
+        try:
+            with open(TCP_EVENTS_FILE, 'r') as f:
+                loaded = json.load(f)
+                cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
+                tcp_events = [e for e in loaded if e['timestamp'] > cutoff]
+                print(f"Loaded {len(tcp_events)} TCP events from disk")
+        except Exception as e:
+            print(f"Error loading TCP events: {e}")
+            tcp_events = []
+    else:
+        os.makedirs(os.path.dirname(TCP_EVENTS_FILE), exist_ok=True)
+        tcp_events = []
 
 # Save attacks to file
 def save_attacks():
@@ -43,15 +88,26 @@ def save_attacks():
         with attacks_lock:
             with open(ATTACKS_FILE, 'w') as f:
                 json.dump(attacks, f)
-        print(f"Saved {len(attacks)} attacks to disk")
+        print(f"Saved {len(attacks)} HTTP events to disk")
     except Exception as e:
         print(f"Error saving attacks: {e}")
 
+def save_tcp_events():
+    try:
+        with tcp_events_lock:
+            with open(TCP_EVENTS_FILE, 'w') as f:
+                json.dump(tcp_events, f)
+        print(f"Saved {len(tcp_events)} TCP events to disk")
+    except Exception as e:
+        print(f"Error saving TCP events: {e}")
+
 # Save on shutdown
 atexit.register(save_attacks)
+atexit.register(save_tcp_events)
 
-# Load attacks on startup
+# Load data on startup
 load_attacks()
+load_tcp_events()
 
 # Middleware to log all requests
 @app.before_request
@@ -87,27 +143,20 @@ def get_stats():
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
     
-    # Combine HTTP attacks with honeypot events
+    # Combine HTTP attacks with TCP events
     all_events = list(attacks)  # HTTP events
     
-    # Load honeypot events if they exist
-    honeypot_file = '/data/honeypot_events.json'
-    if os.path.exists(honeypot_file):
-        try:
-            with open(honeypot_file, 'r') as f:
-                honeypot_events = json.load(f)
-                # Convert honeypot events to attack format
-                for event in honeypot_events:
-                    all_events.append({
-                        'timestamp': event['timestamp'],
-                        'ip': event.get('ip', 'unknown'),
-                        'method': event.get('protocol', 'TCP'),
-                        'path': f":{event.get('port', 0)} {event.get('protocol', 'unknown')}",
-                        'user_agent': event.get('message', ''),
-                        'headers': {}
-                    })
-        except Exception as e:
-            print(f"Error loading honeypot events: {e}")
+    # Convert TCP events to attack format
+    with tcp_events_lock:
+        for event in tcp_events:
+            all_events.append({
+                'timestamp': event['timestamp'],
+                'ip': event.get('ip', 'unknown'),
+                'method': event.get('protocol', 'TCP'),
+                'path': f":{event.get('port', 0)} {event.get('protocol', 'unknown')}",
+                'user_agent': event.get('message', ''),
+                'headers': {}
+            })
     
     recent_attacks = [a for a in all_events if datetime.fromisoformat(a['timestamp']) > last_24h]
     
@@ -233,6 +282,278 @@ exploit_paths = [
 for path in exploit_paths:
     app.add_url_rule(path, f'exploit_{path}', lambda: ('Not Found', 404))
 
+# TCP Listener Classes
+class TrapService:
+    def __init__(self, port, protocol, banner=None):
+        self.port = port
+        self.protocol = protocol
+        self.banner = banner
+        self.running = True
+        
+    def log_event(self, event_data):
+        """Log an event"""
+        event = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'protocol': self.protocol,
+            'port': self.port,
+            **event_data
+        }
+        
+        with tcp_events_lock:
+            tcp_events.append(event)
+            if len(tcp_events) > MAX_LOGS:
+                tcp_events.pop(0)
+            if len(tcp_events) % 10 == 0:
+                save_tcp_events()
+        
+        print(f"[{self.protocol}:{self.port}] {event_data}")
+    
+    def handle_client(self, client_socket, addr):
+        """Override in subclasses"""
+        pass
+    
+    def start(self):
+        """Start the trap service"""
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('0.0.0.0', self.port))
+        server.listen(5)
+        server.settimeout(1.0)
+        
+        print(f"[*] {self.protocol} listener on port {self.port}")
+        
+        while self.running:
+            try:
+                client, addr = server.accept()
+                client.settimeout(CONNECTION_TIMEOUT)
+                
+                if is_rate_limited(addr[0]):
+                    print(f"[!] Rate limited: {addr[0]}")
+                    client.close()
+                    continue
+                
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'connection',
+                    'message': f'Connection from {addr[0]}:{addr[1]}'
+                })
+                
+                client_thread = threading.Thread(
+                    target=self.handle_client,
+                    args=(client, addr)
+                )
+                client_thread.daemon = True
+                client_thread.start()
+                
+            except socket.timeout:
+                continue
+            except Exception as e:
+                print(f"[!] Error in {self.protocol}: {e}")
+                break
+        
+        server.close()
+
+class SSHTrap(TrapService):
+    def __init__(self):
+        super().__init__(22, 'SSH', 'SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5')
+    
+    def handle_client(self, client, addr):
+        try:
+            client.send(f'{self.banner}\r\n'.encode())
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'auth_attempt',
+                    'data': data.decode('utf-8', errors='ignore')[:100]
+                })
+            client.send(b'Permission denied\r\n')
+        except:
+            pass
+        finally:
+            client.close()
+
+class FTPTrap(TrapService):
+    def __init__(self):
+        super().__init__(21, 'FTP', '220 FTP Server ready')
+    
+    def handle_client(self, client, addr):
+        try:
+            client.send(f'{self.banner}\r\n'.encode())
+            username = None
+            attempts = 0
+            while attempts < 2:
+                data = client.recv(MAX_DATA_SIZE)
+                if not data:
+                    break
+                command = data.decode('utf-8', errors='ignore').strip()
+                attempts += 1
+                
+                if command.upper().startswith('USER'):
+                    username = command.split(' ', 1)[1] if ' ' in command else 'unknown'
+                    self.log_event({
+                        'ip': addr[0],
+                        'event_type': 'username',
+                        'username': username[:50]
+                    })
+                    client.send(b'331 Password required\r\n')
+                elif command.upper().startswith('PASS'):
+                    password = command.split(' ', 1)[1] if ' ' in command else 'unknown'
+                    self.log_event({
+                        'ip': addr[0],
+                        'event_type': 'password',
+                        'username': username or 'unknown',
+                        'password': password[:50]
+                    })
+                    client.send(b'530 Login incorrect\r\n')
+                    break
+                else:
+                    client.send(b'500 Unknown command\r\n')
+                    break
+        except:
+            pass
+        finally:
+            client.close()
+
+class TelnetTrap(TrapService):
+    def __init__(self):
+        super().__init__(23, 'Telnet', 'Ubuntu 20.04 LTS')
+    
+    def handle_client(self, client, addr):
+        try:
+            client.send(f'{self.banner}\r\nlogin: '.encode())
+            username = client.recv(MAX_DATA_SIZE).decode('utf-8', errors='ignore').strip()
+            if username:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'username',
+                    'username': username[:50]
+                })
+                client.send(b'Password: ')
+                password = client.recv(MAX_DATA_SIZE).decode('utf-8', errors='ignore').strip()
+                if password:
+                    self.log_event({
+                        'ip': addr[0],
+                        'event_type': 'password',
+                        'username': username[:50],
+                        'password': password[:50]
+                    })
+            client.send(b'\r\nLogin incorrect\r\n')
+        except:
+            pass
+        finally:
+            client.close()
+
+class MySQLTrap(TrapService):
+    def __init__(self):
+        super().__init__(3306, 'MySQL')
+    
+    def handle_client(self, client, addr):
+        try:
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'auth_attempt',
+                    'message': 'MySQL authentication attempt'
+                })
+        except:
+            pass
+        finally:
+            client.close()
+
+class PostgreSQLTrap(TrapService):
+    def __init__(self):
+        super().__init__(5432, 'PostgreSQL')
+    
+    def handle_client(self, client, addr):
+        try:
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'auth_attempt',
+                    'message': 'PostgreSQL authentication attempt'
+                })
+        except:
+            pass
+        finally:
+            client.close()
+
+class RedisTrap(TrapService):
+    def __init__(self):
+        super().__init__(6379, 'Redis')
+    
+    def handle_client(self, client, addr):
+        try:
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                command = data.decode('utf-8', errors='ignore')
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'command',
+                    'command': command[:100]
+                })
+        except:
+            pass
+        finally:
+            client.close()
+
+class MongoDBTrap(TrapService):
+    def __init__(self):
+        super().__init__(27017, 'MongoDB')
+    
+    def handle_client(self, client, addr):
+        try:
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'auth_attempt',
+                    'message': 'MongoDB authentication attempt'
+                })
+        except:
+            pass
+        finally:
+            client.close()
+
+class RDPTrap(TrapService):
+    def __init__(self):
+        super().__init__(3389, 'RDP')
+    
+    def handle_client(self, client, addr):
+        try:
+            data = client.recv(MAX_DATA_SIZE)
+            if data:
+                self.log_event({
+                    'ip': addr[0],
+                    'event_type': 'connection_attempt',
+                    'message': 'RDP connection attempt'
+                })
+        except:
+            pass
+        finally:
+            client.close()
+
+def start_tcp_listeners():
+    """Start all TCP listener services in background threads"""
+    services = [
+        SSHTrap(),
+        FTPTrap(),
+        TelnetTrap(),
+        MySQLTrap(),
+        PostgreSQLTrap(),
+        RedisTrap(),
+        MongoDBTrap(),
+        RDPTrap()
+    ]
+    
+    for service in services:
+        thread = threading.Thread(target=service.start)
+        thread.daemon = True
+        thread.start()
+        print(f"Started {service.protocol} listener on port {service.port}")
+
 # Home page
 @app.route('/')
 def index():
@@ -248,5 +569,9 @@ def index():
     ''', timestamp=datetime.utcnow().isoformat())
 
 if __name__ == '__main__':
+    # Start TCP listeners in background
+    start_tcp_listeners()
+    
+    # Start Flask app
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
