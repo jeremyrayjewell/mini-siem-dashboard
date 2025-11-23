@@ -10,6 +10,7 @@ import threading
 from collections import defaultdict
 import time
 import fcntl  # For file locking across processes
+import sys
 
 app = Flask(__name__)
 CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
@@ -105,12 +106,15 @@ def save_attacks():
 
 def save_tcp_events():
     try:
+        print("[DEBUG] Starting save_tcp_events...", file=sys.stderr)
         # Use file locking for cross-process safety
         lock_file = TCP_EVENTS_FILE + '.lock'
         os.makedirs(os.path.dirname(TCP_EVENTS_FILE), exist_ok=True)
         
         with open(lock_file, 'w') as lockf:
+            print("[DEBUG] Acquiring lock...", file=sys.stderr)
             fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)  # Exclusive lock
+            print("[DEBUG] Lock acquired.", file=sys.stderr)
             
             try:
                 # Read existing events from file
@@ -141,12 +145,15 @@ def save_tcp_events():
                 with open(TCP_EVENTS_FILE, 'w') as f:
                     json.dump(existing, f)
                 
-                print(f"Saved {len(existing)} TCP events to disk (+{new_count} new)")
+                print(f"Saved {len(existing)} TCP events to disk (+{new_count} new)", file=sys.stderr)
             finally:
                 fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)  # Release lock
+                print("[DEBUG] Lock released.", file=sys.stderr)
                 
     except Exception as e:
-        print(f"Error saving TCP events: {e}")
+        print(f"Error saving TCP events: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
 
 # Save on shutdown
 atexit.register(save_attacks)
@@ -344,21 +351,28 @@ class TrapService:
         
     def log_event(self, event_data):
         """Log an event and save to disk immediately"""
-        event = {
-            'timestamp': datetime.utcnow().isoformat(),
-            'protocol': self.protocol,
-            'port': self.port,
-            **event_data
-        }
-        
-        with tcp_events_lock:
-            tcp_events.append(event)
-            if len(tcp_events) > MAX_LOGS:
-                tcp_events.pop(0)
-            # Save immediately on every event so separate processes can see it
-            save_tcp_events()
-        
-        print(f"[{self.protocol}:{self.port}] {event_data}")
+        try:
+            event = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'protocol': self.protocol,
+                'port': self.port,
+                **event_data
+            }
+            
+            print(f"[DEBUG] Logging event: {event}", file=sys.stderr)
+            
+            with tcp_events_lock:
+                tcp_events.append(event)
+                if len(tcp_events) > MAX_LOGS:
+                    tcp_events.pop(0)
+                # Save immediately on every event so separate processes can see it
+                save_tcp_events()
+            
+            print(f"[{self.protocol}:{self.port}] {event_data}")
+        except Exception as e:
+            print(f"[ERROR] Failed to log event: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
     
     def handle_client(self, client_socket, addr):
         """Override in subclasses"""
