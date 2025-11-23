@@ -9,6 +9,7 @@ import socket
 import threading
 from collections import defaultdict
 import time
+import fcntl  # For file locking across processes
 
 app = Flask(__name__)
 CORS(app, origins=["https://mini-siem-dashboard.netlify.app"])
@@ -74,11 +75,17 @@ def load_tcp_events():
     global tcp_events
     if os.path.exists(TCP_EVENTS_FILE):
         try:
-            with open(TCP_EVENTS_FILE, 'r') as f:
-                loaded = json.load(f)
-                cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
-                tcp_events = [e for e in loaded if e['timestamp'] > cutoff]
-                print(f"Loaded {len(tcp_events)} TCP events from disk")
+            lock_file = TCP_EVENTS_FILE + '.lock'
+            with open(lock_file, 'w') as lockf:
+                fcntl.flock(lockf.fileno(), fcntl.LOCK_SH)  # Shared lock for reading
+                try:
+                    with open(TCP_EVENTS_FILE, 'r') as f:
+                        loaded = json.load(f)
+                        cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
+                        tcp_events = [e for e in loaded if e['timestamp'] > cutoff]
+                        print(f"Loaded {len(tcp_events)} TCP events from disk")
+                finally:
+                    fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
         except Exception as e:
             print(f"Error loading TCP events: {e}")
             tcp_events = []
@@ -98,32 +105,46 @@ def save_attacks():
 
 def save_tcp_events():
     try:
-        with tcp_events_lock:
-            # Read existing events from file (other process may have added some)
-            existing = []
-            if os.path.exists(TCP_EVENTS_FILE):
-                try:
-                    with open(TCP_EVENTS_FILE, 'r') as f:
-                        existing = json.load(f)
-                except:
-                    existing = []
+        # Use file locking for cross-process safety
+        lock_file = TCP_EVENTS_FILE + '.lock'
+        os.makedirs(os.path.dirname(TCP_EVENTS_FILE), exist_ok=True)
+        
+        with open(lock_file, 'w') as lockf:
+            fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)  # Exclusive lock
             
-            # Merge: add our events that aren't already in file
-            existing_keys = {(e['timestamp'], e['ip'], e['port']) for e in existing}
-            for event in tcp_events:
-                key = (event['timestamp'], event['ip'], event['port'])
-                if key not in existing_keys:
-                    existing.append(event)
-                    existing_keys.add(key)
-            
-            # Apply retention filter
-            cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
-            existing = [e for e in existing if e['timestamp'] > cutoff]
-            
-            # Write back
-            with open(TCP_EVENTS_FILE, 'w') as f:
-                json.dump(existing, f)
-        print(f"Saved {len(existing)} TCP events to disk")
+            try:
+                # Read existing events from file
+                existing = []
+                if os.path.exists(TCP_EVENTS_FILE):
+                    try:
+                        with open(TCP_EVENTS_FILE, 'r') as f:
+                            existing = json.load(f)
+                    except:
+                        existing = []
+                
+                # Merge: add our events that aren't already in file
+                existing_keys = {(e['timestamp'], e['ip'], e['port']) for e in existing}
+                new_count = 0
+                with tcp_events_lock:  # Thread lock for our own list
+                    for event in tcp_events:
+                        key = (event['timestamp'], event['ip'], event['port'])
+                        if key not in existing_keys:
+                            existing.append(event)
+                            existing_keys.add(key)
+                            new_count += 1
+                
+                # Apply retention filter
+                cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
+                existing = [e for e in existing if e['timestamp'] > cutoff]
+                
+                # Write back
+                with open(TCP_EVENTS_FILE, 'w') as f:
+                    json.dump(existing, f)
+                
+                print(f"Saved {len(existing)} TCP events to disk (+{new_count} new)")
+            finally:
+                fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)  # Release lock
+                
     except Exception as e:
         print(f"Error saving TCP events: {e}")
 
