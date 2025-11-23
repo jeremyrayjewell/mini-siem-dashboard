@@ -60,10 +60,50 @@ load_attacks()
 
 SIEM_INGEST_URL = "http://siem-service/ingest"  # Replace with actual SIEM service URL
 
+def log_http_request(req):
+    """
+    Append a single HTTP request event to ATTACKS_FILE.
+    Event fields:
+      - timestamp: ISO string (UTC)
+      - ip: client IP address
+      - path: request.path
+      - method: request.method
+    Use /data/attacks.json as a JSON list. If the file doesn't exist, create it.
+    If the file is corrupt, overwrite it with a new list.
+    Truncate the list to MAX_LOGS if needed.
+    """
+    event = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "ip": req.remote_addr,
+        "path": req.path,
+        "method": req.method
+    }
+
+    try:
+        if os.path.exists(ATTACKS_FILE):
+            with open(ATTACKS_FILE, "r") as f:
+                try:
+                    events = json.load(f)
+                except json.JSONDecodeError:
+                    events = []
+        else:
+            events = []
+
+        events.append(event)
+        if len(events) > MAX_LOGS:
+            events = events[-MAX_LOGS:]
+
+        with open(ATTACKS_FILE, "w") as f:
+            json.dump(events, f)
+    except Exception as e:
+        print(f"[ERROR] Failed to log HTTP request: {e}")
+
 @app.before_request
 def before_request_handler():
-    if request.path in ['/favicon.ico']:
+    if request.path in ['/favicon.ico', '/api/stats']:
         return
+
+    log_http_request(request)
 
     forwarded_for = request.headers.get('X-Forwarded-For', request.remote_addr)
     client_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
