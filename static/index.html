@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mini SIEM Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; background: #f7f7f7; }
+        h1 { color: #333; }
+        .stats { margin-bottom: 2em; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+        th, td { border: 1px solid #ccc; padding: 0.5em; text-align: left; }
+        th { background: #eee; }
+        .recent-events { max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Mini SIEM Dashboard</h1>
+    <div class="stats">
+        <div>Total Events: <span id="totalEvents">0</span></div>
+        <div>Last 24 Hours: <span id="last24h">0</span></div>
+    </div>
+    <h2>Top IPs</h2>
+    <table id="topIPs">
+        <thead><tr><th>IP</th><th>Count</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <h2>Top Ports</h2>
+    <table id="topPorts">
+        <thead><tr><th>Port</th><th>Count</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <h2>Recent Events</h2>
+    <div class="recent-events">
+        <table id="recentEvents">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>IP</th>
+                    <th>Port</th>
+                    <th>Protocol</th>
+                    <th>Type</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <script>
+        function fetchStats() {
+            fetch('/api/stats').then(r => r.json()).then(data => {
+                document.getElementById('totalEvents').textContent = data.totalEvents;
+                document.getElementById('last24h').textContent = data.last24h;
+                // Top IPs
+                let ipRows = '';
+                data.topIPs.forEach(ip => {
+                    ipRows += `<tr><td>${ip.ip}</td><td>${ip.count}</td></tr>`;
+                });
+                document.querySelector('#topIPs tbody').innerHTML = ipRows;
+                // Top Ports
+                let portRows = '';
+                data.topPorts.forEach(port => {
+                    portRows += `<tr><td>${port.port}</td><td>${port.count}</td></tr>`;
+                });
+                document.querySelector('#topPorts tbody').innerHTML = portRows;
+                // Recent Events
+                let eventRows = '';
+                data.recentEvents.forEach(ev => {
+                    eventRows += `<tr><td>${ev.timestamp}</td><td>${ev.ip}</td><td>${ev.port}</td><td>${ev.protocol}</td><td>${ev.event_type}</td><td>${ev.message}</td></tr>`;
+                });
+                document.querySelector('#recentEvents tbody').innerHTML = eventRows;
+            });
+        }
+        fetchStats();
+        setInterval(fetchStats, 5000);
+    </script>
+</body>
+</html>
