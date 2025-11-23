@@ -133,6 +133,7 @@ const ALERT_THRESHOLD = 10;
 // Initialize map
 let map;
 let markers = [];
+let geoCache = {}; // Cache IP locations to reduce API calls
 
 function initMap() {
   map = L.map('map').setView([20, 0], 2);
@@ -143,17 +144,24 @@ function initMap() {
 }
 
 async function getIPLocation(ip) {
+  // Check cache first
+  if (geoCache[ip]) {
+    return geoCache[ip];
+  }
+  
   try {
-    // Use ipapi.co instead - better CORS support
-    const res = await fetch(`https://ipapi.co/${ip}/json/`);
+    // Use free-form ip-api.com with fields parameter (supports CORS)
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,city,lat,lon`);
     const data = await res.json();
-    if (data.latitude && data.longitude) {
-      return { 
-        lat: data.latitude, 
-        lon: data.longitude, 
-        country: data.country_name || 'Unknown', 
-        city: data.city || 'Unknown' 
+    if (data.status === 'success') {
+      const location = { 
+        lat: data.lat, 
+        lon: data.lon, 
+        country: data.country, 
+        city: data.city 
       };
+      geoCache[ip] = location; // Cache it
+      return location;
     }
   } catch (e) {
     console.error(`Geolocation error for ${ip}:`, e);
