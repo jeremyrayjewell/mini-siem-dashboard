@@ -146,6 +146,9 @@ def before_request_handler():
 # API endpoint for dashboard
 @app.route('/api/stats')
 def get_stats():
+    # Reload TCP events from disk since they're written by separate process
+    load_tcp_events()
+    
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
     
