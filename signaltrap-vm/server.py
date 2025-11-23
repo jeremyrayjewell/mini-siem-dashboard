@@ -314,44 +314,49 @@ class TrapService:
     
     def start(self):
         """Start the trap service"""
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(('0.0.0.0', self.port))
-        server.listen(5)
-        server.settimeout(1.0)
-        
-        print(f"[*] {self.protocol} listener on port {self.port}")
-        
-        while self.running:
-            try:
-                client, addr = server.accept()
-                client.settimeout(CONNECTION_TIMEOUT)
-                
-                if is_rate_limited(addr[0]):
-                    print(f"[!] Rate limited: {addr[0]}")
-                    client.close()
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(('0.0.0.0', self.port))
+            server.listen(5)
+            server.settimeout(1.0)
+            
+            print(f"[*] {self.protocol} listener on port {self.port}")
+            
+            while self.running:
+                try:
+                    client, addr = server.accept()
+                    client.settimeout(CONNECTION_TIMEOUT)
+                    
+                    if is_rate_limited(addr[0]):
+                        print(f"[!] Rate limited: {addr[0]}")
+                        client.close()
+                        continue
+                    
+                    self.log_event({
+                        'ip': addr[0],
+                        'event_type': 'connection',
+                        'message': f'Connection from {addr[0]}:{addr[1]}'
+                    })
+                    
+                    client_thread = threading.Thread(
+                        target=self.handle_client,
+                        args=(client, addr)
+                    )
+                    client_thread.daemon = True
+                    client_thread.start()
+                    
+                except socket.timeout:
                     continue
-                
-                self.log_event({
-                    'ip': addr[0],
-                    'event_type': 'connection',
-                    'message': f'Connection from {addr[0]}:{addr[1]}'
-                })
-                
-                client_thread = threading.Thread(
-                    target=self.handle_client,
-                    args=(client, addr)
-                )
-                client_thread.daemon = True
-                client_thread.start()
-                
-            except socket.timeout:
-                continue
-            except Exception as e:
-                print(f"[!] Error in {self.protocol}: {e}")
-                break
-        
-        server.close()
+                except Exception as e:
+                    print(f"[!] Error accepting connection in {self.protocol}: {e}")
+                    continue
+            
+            server.close()
+        except Exception as e:
+            print(f"[!] FATAL: Could not start {self.protocol} listener on port {self.port}: {e}")
+            import traceback
+            traceback.print_exc()
 
 class SSHTrap(TrapService):
     def __init__(self):
