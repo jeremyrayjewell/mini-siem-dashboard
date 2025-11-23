@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Start TCP listeners in separate background process
-python3 -c "
+# Start TCP listeners in separate background process with unbuffered output
+python3 -u -c "
 from server import start_tcp_listeners
 import time
 import signal
