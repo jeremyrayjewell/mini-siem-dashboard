@@ -117,12 +117,15 @@ load_tcp_events()
 @app.before_request
 def ensure_tcp_listeners():
     global _listeners_started
+    print(f"[FLASK DEBUG] before_request called for {request.path}")
     with _listeners_lock:
         if not _listeners_started:
             print("[FLASK] Starting TCP listeners on first request...")
             start_tcp_listeners()
             _listeners_started = True
             print("[FLASK] TCP listeners started!")
+        else:
+            print("[FLASK DEBUG] Listeners already started, skipping")
 
 # Middleware to log all requests
 @app.before_request
