@@ -150,15 +150,15 @@ async function getIPLocation(ip) {
   }
   
   try {
-    // Use free-form ip-api.com with fields parameter (supports CORS)
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,city,lat,lon`);
+    // Use ipwhois.app - free, HTTPS, no API key needed
+    const res = await fetch(`https://ipwhois.app/json/${ip}`);
     const data = await res.json();
-    if (data.status === 'success') {
+    if (data.success && data.latitude && data.longitude) {
       const location = { 
-        lat: data.lat, 
-        lon: data.lon, 
-        country: data.country, 
-        city: data.city 
+        lat: data.latitude, 
+        lon: data.longitude, 
+        country: data.country || 'Unknown', 
+        city: data.city || 'Unknown'
       };
       geoCache[ip] = location; // Cache it
       return location;
