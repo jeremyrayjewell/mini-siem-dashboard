@@ -1,8 +1,0 @@
-node_modules/
-.DS_Store
-*.log
-.env
-__pycache__/
-venv/
-*.pyc
-signaltrap-vm/venv/
