@@ -99,9 +99,31 @@ def save_attacks():
 def save_tcp_events():
     try:
         with tcp_events_lock:
+            # Read existing events from file (other process may have added some)
+            existing = []
+            if os.path.exists(TCP_EVENTS_FILE):
+                try:
+                    with open(TCP_EVENTS_FILE, 'r') as f:
+                        existing = json.load(f)
+                except:
+                    existing = []
+            
+            # Merge: add our events that aren't already in file
+            existing_keys = {(e['timestamp'], e['ip'], e['port']) for e in existing}
+            for event in tcp_events:
+                key = (event['timestamp'], event['ip'], event['port'])
+                if key not in existing_keys:
+                    existing.append(event)
+                    existing_keys.add(key)
+            
+            # Apply retention filter
+            cutoff = (datetime.utcnow() - timedelta(days=LOG_RETENTION_DAYS)).isoformat()
+            existing = [e for e in existing if e['timestamp'] > cutoff]
+            
+            # Write back
             with open(TCP_EVENTS_FILE, 'w') as f:
-                json.dump(tcp_events, f)
-        print(f"Saved {len(tcp_events)} TCP events to disk")
+                json.dump(existing, f)
+        print(f"Saved {len(existing)} TCP events to disk")
     except Exception as e:
         print(f"Error saving TCP events: {e}")
 
