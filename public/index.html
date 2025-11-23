@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>Mini SIEM Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body { 
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -79,11 +81,11 @@
 <body>
   <div class="container">
     <h1>Mini SIEM Dashboard</h1>
-    <div class="small">Real-time honeypot attack monitoring</div>
+    <div class="small">Real-time honeypot event monitoring</div>
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Total Attacks</div>
+        <div class="stat-label">Total Events</div>
         <div class="stat-value" id="totalAttacks">0</div>
       </div>
       <div class="stat-card">
@@ -95,6 +97,9 @@
         <div class="stat-value" id="uniqueIPs">0</div>
       </div>
     </div>
+
+    <h2>Event Origin Map</h2>
+    <div id="map" style="width: 100%; height: 400px; background: #f0f0f0; border-radius: 6px; margin-bottom: 30px;"></div>
 
     <div class="tables-grid">
       <div>
@@ -114,7 +119,7 @@
       </div>
     </div>
 
-    <h2>Recent Attacks</h2>
+    <h2>Recent Events</h2>
     <table id="attackTable">
       <thead><tr><th>Time (UTC)</th><th>IP Address</th><th>Target Path</th><th>Method</th></tr></thead>
       <tbody></tbody>
@@ -123,10 +128,63 @@
 
 <script>
 const API_BASE = "https://signaltrap.fly.dev";
+const ALERT_THRESHOLD = 10;
 
-  const ALERT_THRESHOLD = 10; 
+// Initialize map
+let map;
+let markers = [];
 
-  async function loadStats() {
+function initMap() {
+  map = L.map('map').setView([20, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18
+  }).addTo(map);
+}
+
+async function getIPLocation(ip) {
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ip}`);
+    const data = await res.json();
+    if (data.status === 'success') {
+      return { lat: data.lat, lon: data.lon, country: data.country, city: data.city };
+    }
+  } catch (e) {
+    console.error('Geolocation error:', e);
+  }
+  return null;
+}
+
+async function updateMap(topIPs) {
+  // Clear existing markers
+  markers.forEach(marker => map.removeLayer(marker));
+  markers = [];
+  
+  // Add markers for each IP
+  for (const item of topIPs.slice(0, 10)) {
+    const location = await getIPLocation(item.ip);
+    if (location) {
+      const marker = L.circleMarker([location.lat, location.lon], {
+        radius: Math.min(5 + item.count * 2, 20),
+        fillColor: item.count >= ALERT_THRESHOLD ? '#ff0000' : '#0066cc',
+        color: '#fff',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.7
+      }).addTo(map);
+      
+      marker.bindPopup(`
+        <b>${item.ip}</b><br>
+        ${location.city}, ${location.country}<br>
+        Events: ${item.count}
+      `);
+      
+      markers.push(marker);
+    }
+  }
+}
+
+async function loadStats() {
     const res = await fetch(`${API_BASE}/api/stats`);
     const data = await res.json();
 
@@ -144,6 +202,10 @@ const API_BASE = "https://signaltrap.fly.dev";
 
     // Handle topIPs array format
     const topIPs = data.topIPs || [];
+    
+    // Update map with IP locations
+    updateMap(topIPs);
+    
     topIPs.forEach(item => {
       const tr = document.createElement('tr');
       if (item.count >= ALERT_THRESHOLD) {
@@ -196,8 +258,12 @@ const API_BASE = "https://signaltrap.fly.dev";
     });
   }
 
-  loadStats();
-  setInterval(loadStats, 5000);
+  // Initialize on page load
+  window.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    loadStats();
+    setInterval(loadStats, 5000);
+  });
 </script>
 
 
