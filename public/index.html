@@ -54,7 +54,7 @@ const API_BASE = "https://signaltrap.fly.dev";
       const tdLast = document.createElement('td');
       tdIp.textContent = item.ip;
       tdCount.textContent = item.count;
-      tdLast.textContent = ''; // No timestamp in current API
+      tdLast.textContent = item.last_seen || '';
       tr.append(tdIp, tdCount, tdLast);
       ipBody.appendChild(tr);
     });
