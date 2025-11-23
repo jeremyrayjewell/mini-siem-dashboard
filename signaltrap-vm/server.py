@@ -394,20 +394,10 @@ class TrapService:
                     client, addr = server.accept()
                     client.settimeout(CONNECTION_TIMEOUT)
                     
-                    # Log connection BEFORE rate limit check so we see all attempts
-                    self.log_event({
-                        'ip': addr[0],
-                        'event_type': 'connection',
-                        'message': f'Connection from {addr[0]}:{addr[1]}'
-                    })
-                    
-                    if is_rate_limited(addr[0]):
-                        print(f"[!] Rate limited: {addr[0]}")
-                        client.close()
-                        continue
-                    
+                    # Handle connection in a separate thread immediately
+                    # This prevents logging/locking from blocking the accept loop or the banner
                     client_thread = threading.Thread(
-                        target=self.handle_client,
+                        target=self._handle_connection_wrapper,
                         args=(client, addr)
                     )
                     client_thread.daemon = True
@@ -424,6 +414,29 @@ class TrapService:
             print(f"[!] FATAL: Could not start {self.protocol} listener on port {self.port}: {e}")
             import traceback
             traceback.print_exc()
+
+    def _handle_connection_wrapper(self, client, addr):
+        """Wrapper to handle logging and rate limiting inside the client thread"""
+        try:
+            # Log connection
+            self.log_event({
+                'ip': addr[0],
+                'event_type': 'connection',
+                'message': f'Connection from {addr[0]}:{addr[1]}'
+            })
+            
+            if is_rate_limited(addr[0]):
+                print(f"[!] Rate limited: {addr[0]}")
+                client.close()
+                return
+            
+            self.handle_client(client, addr)
+        except Exception as e:
+            print(f"[!] Error in connection wrapper for {addr}: {e}")
+            try:
+                client.close()
+            except:
+                pass
 
 class SSHTrap(TrapService):
     def __init__(self):
