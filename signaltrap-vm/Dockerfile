@@ -9,9 +9,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY server.py .
 COPY gunicorn.conf.py .
+COPY start.sh .
+RUN chmod +x start.sh
 
 # Expose all ports
 EXPOSE 8080 2222 2121 2323 3306 5432 6379 27017 3389
 
-# Run gunicorn with config file
-CMD ["gunicorn", "--config", "gunicorn.conf.py", "--bind", "0.0.0.0:8080", "--workers", "1", "server:app"]
+# Run startup script
+CMD ["./start.sh"]
