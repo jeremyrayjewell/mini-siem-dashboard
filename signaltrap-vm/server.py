@@ -355,7 +355,7 @@ class TrapService:
 
 class SSHTrap(TrapService):
     def __init__(self):
-        super().__init__(22, 'SSH', 'SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5')
+        super().__init__(2222, 'SSH', 'SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5')
     
     def handle_client(self, client, addr):
         try:
@@ -375,7 +375,7 @@ class SSHTrap(TrapService):
 
 class FTPTrap(TrapService):
     def __init__(self):
-        super().__init__(21, 'FTP', '220 FTP Server ready')
+        super().__init__(2121, 'FTP', '220 FTP Server ready')
     
     def handle_client(self, client, addr):
         try:
@@ -417,7 +417,7 @@ class FTPTrap(TrapService):
 
 class TelnetTrap(TrapService):
     def __init__(self):
-        super().__init__(23, 'Telnet', 'Ubuntu 20.04 LTS')
+        super().__init__(2323, 'Telnet', 'Ubuntu 20.04 LTS')
     
     def handle_client(self, client, addr):
         try:

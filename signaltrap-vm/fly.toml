@@ -17,27 +17,27 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
-# Additional services for honeypot protocols
+# Additional services for TCP traps
 [[services]]
-  internal_port = 22
+  internal_port = 2222
   protocol = "tcp"
 
   [[services.ports]]
-    port = 22
+    port = 2222
 
 [[services]]
-  internal_port = 21
+  internal_port = 2121
   protocol = "tcp"
 
   [[services.ports]]
-    port = 21
+    port = 2121
 
 [[services]]
-  internal_port = 23
+  internal_port = 2323
   protocol = "tcp"
 
   [[services.ports]]
-    port = 23
+    port = 2323
 
 [[services]]
   internal_port = 3306
