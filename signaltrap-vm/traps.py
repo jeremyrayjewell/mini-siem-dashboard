@@ -9,6 +9,7 @@ import traceback
 from datetime import datetime, timedelta
 from collections import defaultdict
 from threading import Lock
+import requests
 
 # Configuration
 MAX_LOGS = 10000
@@ -18,6 +19,7 @@ RATE_LIMIT_WINDOW = 300  # 5 minutes
 MAX_CONNECTIONS_PER_IP = 3  # Only 3 connections per 5 minutes
 CONNECTION_TIMEOUT = 2  # Seconds
 MAX_DATA_SIZE = 512  # Bytes
+SIEM_INGEST_URL = "http://siem-service/ingest"  # Replace with actual SIEM service URL
 
 # TCP events storage
 tcp_events = []
@@ -115,7 +117,7 @@ class TrapService:
         self.running = True
         
     def log_event(self, event_data):
-        """Log an event to memory (saved to disk by background thread)"""
+        """Log an event to memory (saved to disk by background thread) and forward to SIEM"""
         try:
             event = {
                 'timestamp': datetime.utcnow().isoformat(),
@@ -123,15 +125,23 @@ class TrapService:
                 'port': self.port,
                 **event_data
             }
-            
+
             print(f"[DEBUG] Logging event: {event}", file=sys.stderr)
-            
+
             with tcp_events_lock:
                 tcp_events.append(event)
                 if len(tcp_events) > MAX_LOGS:
                     tcp_events.pop(0)
-            
+
             print(f"[{self.protocol}:{self.port}] {event_data}")
+
+            # Forward event to SIEM
+            try:
+                response = requests.post(SIEM_INGEST_URL, json=event)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                print(f"[ERROR] Failed to forward TCP event to SIEM: {e}")
+
         except Exception as e:
             print(f"[ERROR] Failed to log event: {e}", file=sys.stderr)
             traceback.print_exc()
@@ -209,12 +219,15 @@ class SSHTrap(TrapService):
             if data:
                 self.log_event({
                     'ip': addr[0],
+                    'src_port': addr[1],
+                    'dst_port': self.port,
+                    'protocol': self.protocol,
                     'event_type': 'auth_attempt',
                     'data': data.decode('utf-8', errors='ignore')[:100]
                 })
             client.send(b'Permission denied\r\n')
-        except:
-            pass
+        except Exception as e:
+            print(f"[SSHTrap] Error handling client: {e}")
         finally:
             client.close()
 
@@ -238,6 +251,9 @@ class FTPTrap(TrapService):
                     username = command.split(' ', 1)[1] if ' ' in command else 'unknown'
                     self.log_event({
                         'ip': addr[0],
+                        'src_port': addr[1],
+                        'dst_port': self.port,
+                        'protocol': self.protocol,
                         'event_type': 'username',
                         'username': username[:50]
                     })
@@ -246,6 +262,9 @@ class FTPTrap(TrapService):
                     password = command.split(' ', 1)[1] if ' ' in command else 'unknown'
                     self.log_event({
                         'ip': addr[0],
+                        'src_port': addr[1],
+                        'dst_port': self.port,
+                        'protocol': self.protocol,
                         'event_type': 'password',
                         'username': username or 'unknown',
                         'password': password[:50]
@@ -255,8 +274,8 @@ class FTPTrap(TrapService):
                 else:
                     client.send(b'500 Unknown command\r\n')
                     break
-        except:
-            pass
+        except Exception as e:
+            print(f"[FTPTrap] Error handling client: {e}")
         finally:
             client.close()
 
@@ -402,14 +421,9 @@ def start_tcp_listeners():
     print("[LISTENERS] Started background event saver thread")
 
     services = [
-        SSHTrap(),
-        FTPTrap(),
         TelnetTrap(),
-        MySQLTrap(),
-        PostgreSQLTrap(),
-        RedisTrap(),
-        MongoDBTrap(),
-        RDPTrap()
+        SSHTrap(),  # Add SSH listener
+        FTPTrap()    # Add FTP listener
     ]
     
     for service in services:
