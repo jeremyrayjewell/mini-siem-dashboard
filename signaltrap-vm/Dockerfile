@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY server.py .
 COPY listeners.py .
+COPY traps.py .
 COPY gunicorn.conf.py .
 COPY start.sh .
 RUN chmod +x start.sh
