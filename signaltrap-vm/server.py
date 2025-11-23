@@ -119,12 +119,18 @@ def before_request_handler():
     # Start TCP listeners on first request
     global _listeners_started
     print(f"[FLASK DEBUG] before_request called for {request.path}")
+    print(f"[FLASK DEBUG] _listeners_started = {_listeners_started}")
     with _listeners_lock:
         if not _listeners_started:
             print("[FLASK] Starting TCP listeners on first request...")
-            start_tcp_listeners()
-            _listeners_started = True
-            print("[FLASK] TCP listeners started!")
+            try:
+                start_tcp_listeners()
+                _listeners_started = True
+                print("[FLASK] TCP listeners started!")
+            except Exception as e:
+                print(f"[FLASK ERROR] Failed to start TCP listeners: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print("[FLASK DEBUG] Listeners already started, skipping")
     
