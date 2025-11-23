@@ -581,17 +581,7 @@ def index():
     ''', timestamp=datetime.utcnow().isoformat())
 
 if __name__ == '__main__':
-    # Start Flask app
+    # Start Flask app (only for local development)
+    start_tcp_listeners()
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
-
-# Start TCP listeners when module is imported by gunicorn
-# This runs AFTER all classes are defined
-print("[FLASK] Starting TCP listeners at module level...")
-try:
-    start_tcp_listeners()
-    print("[FLASK] TCP listeners started at module level!")
-except Exception as e:
-    print(f"[FLASK ERROR] Failed to start TCP listeners: {e}")
-    import traceback
-    traceback.print_exc()
