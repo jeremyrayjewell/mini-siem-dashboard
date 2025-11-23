@@ -30,13 +30,6 @@ primary_region = "iad"
   protocol = "tcp"
 
   [[services.ports]]
-    port = 2222
-
-[[services]]
-  internal_port = 2121
-  protocol = "tcp"
-
-  [[services.ports]]
     port = 2121
 
 [[services]]
