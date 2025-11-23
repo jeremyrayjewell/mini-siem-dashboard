@@ -573,13 +573,10 @@ def index():
         </html>
     ''', timestamp=datetime.utcnow().isoformat())
 
-# Don't auto-start here - let gunicorn config handle it
-# This prevents starting listeners in parent process before fork
+# Start TCP listeners when module loads (works with gunicorn)
+start_tcp_listeners()
 
 if __name__ == '__main__':
-    # Start TCP listeners for local development
-    start_tcp_listeners()
-    
     # Start Flask app
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
