@@ -176,6 +176,7 @@
             const geoResults = {};
             await Promise.all(uniqueIPs.map(async ip => {
                 geoResults[ip] = await fetchGeo(ip);
+                console.log(`Geo lookup for IP ${ip}:`, geoResults[ip]);
             }));
             for (const ev of events) {
                 const geo = geoResults[ev.ip];
@@ -190,6 +191,9 @@
                         popup
                     });
                 }
+            }
+            if (markers.length === 0) {
+                console.warn('No valid geo data for any IPs:', uniqueIPs);
             }
             return markers;
         }
@@ -326,7 +330,7 @@
             geoMarkers = [];
             const markers = await buildGeoMarkers(events);
             if (markers.length === 0) {
-                document.getElementById('geoMap').innerHTML = '<div style="padding:2em;text-align:center;color:#888;">No geo data available yet</div>';
+                document.getElementById('geoMap').innerHTML = '<div style="padding:2em;text-align:center;color:#e11d48;">No valid geo data for recent events.<br>Check IP addresses and API limits.</div>';
                 return;
             } else {
                 document.getElementById('geoMap').innerHTML = '';
