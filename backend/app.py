@@ -7,7 +7,7 @@ from backend.traps import start_trap_listeners, EVENTS_FILE, EVENTS_LOCK, MAX_EV
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-REPO_ROOT = BASE_DIR.parent
+PUBLIC_DIR = BASE_DIR.parent / "public"
 
 app = Flask(__name__)
 @app.route("/admin/reset-events", methods=["POST"])
@@ -89,7 +89,7 @@ def before_request_logging():
 
 @app.route("/")
 def index():
-	return send_from_directory(str(REPO_ROOT), "index.html")
+	return send_from_directory(str(PUBLIC_DIR), "index.html")
 
 @app.route('/api/stats')
 def api_stats():
