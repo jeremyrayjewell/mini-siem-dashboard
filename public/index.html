@@ -339,44 +339,49 @@
         }
 
         async function fetchStats() {
-            fetch('/api/stats').then(r => r.json()).then(async data => {
-                document.getElementById('totalEvents').textContent = data.totalEvents;
-                document.getElementById('last24h').textContent = data.last24h;
+            try {
+                const response = await fetch('https://backend-weathered-voice-4887.fly.dev/api/stats');
+                if (!response.ok) return;
+                const data = await response.json();
+                document.getElementById('totalEvents').textContent = data.totalEvents ?? '0';
+                document.getElementById('last24h').textContent = data.last24h ?? '0';
                 // Top IPs Table
                 let ipRows = '';
-                data.topIPs.forEach(ip => {
-                    ipRows += `<tr><td>${ip.ip}</td><td>${ip.count}</td></tr>`;
+                (data.topIPs ?? []).forEach(ip => {
+                    ipRows += `<tr><td>${ip.ip ?? ''}</td><td>${ip.count ?? ''}</td></tr>`;
                 });
                 document.querySelector('#topIPs tbody').innerHTML = ipRows;
                 // Top Ports Table
                 let portRows = '';
-                data.topPorts.forEach(port => {
-                    portRows += `<tr><td>${port.port}</td><td>${port.count}</td></tr>`;
+                (data.topPorts ?? []).forEach(port => {
+                    portRows += `<tr><td>${port.port ?? ''}</td><td>${port.count ?? ''}</td></tr>`;
                 });
                 document.querySelector('#topPorts tbody').innerHTML = portRows;
                 // Recent Events Table
                 let eventRows = '';
-                data.recentEvents.forEach(ev => {
+                (data.recentEvents ?? []).forEach(ev => {
                     eventRows += `<tr>
-                        <td>${ev.timestamp}</td>
-                        <td>${ev.ip}</td>
-                        <td>${ev.port}</td>
-                        <td>${ev.src_port ?? ""}</td>
-                        <td>${ev.protocol}</td>
-                        <td>${ev.event_type}</td>
-                        <td>${ev.message}</td>
-                        <td>${ev.user_agent ?? ""}</td>
-                        <td>${typeof ev.banner_sent === "boolean" ? String(ev.banner_sent) : ""}</td>
+                        <td>${ev.timestamp ?? ''}</td>
+                        <td>${ev.ip ?? ''}</td>
+                        <td>${ev.port ?? ''}</td>
+                        <td>${ev.src_port ?? ''}</td>
+                        <td>${ev.protocol ?? ''}</td>
+                        <td>${ev.event_type ?? ''}</td>
+                        <td>${ev.message ?? ''}</td>
+                        <td>${ev.user_agent ?? ''}</td>
+                        <td>${typeof ev.banner_sent === 'boolean' ? String(ev.banner_sent) : ''}</td>
                     </tr>`;
                 });
                 document.querySelector('#recentEvents tbody').innerHTML = eventRows;
 
                 // Update analytics visuals
-                updateEventsOverTimeChart(data.recentEvents);
-                updateTopIPsChart(data.topIPs);
-                updateProtocolChart(data.recentEvents);
-                await updateGeoMap(data.recentEvents);
-            });
+                updateEventsOverTimeChart(data.recentEvents ?? []);
+                updateTopIPsChart(data.topIPs ?? []);
+                updateProtocolChart(data.recentEvents ?? []);
+                await updateGeoMap(data.recentEvents ?? []);
+            } catch (err) {
+                // Silent fail for now
+            }
         }
         fetchStats();
         setInterval(fetchStats, 5000);
