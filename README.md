@@ -1,8 +1,6 @@
 # Mini SIEM Dashboard
 
-A simple, local-only honeypot and mini-SIEM written in Python (Flask) with a modern JavaScript dashboard. It logs connection events from fake TCP services and displays analytics in a responsive web UI.
-
-> ⚠️ This project is for learning and portfolio use. It is **not intended as a production SIEM** or as an internet-facing honeypot.
+A simple honeypot and mini-SIEM written in Python (Flask) with a modern JavaScript dashboard. It logs connection events from fake TCP services and displays analytics in a responsive web UI. It is designed for home-lab and research use, and can be exposed to the internet as a small, focused honeypot — but it is **not** a full-featured enterprise SIEM.
 
 ## Features
 
@@ -25,7 +23,7 @@ A simple, local-only honeypot and mini-SIEM written in Python (Flask) with a mod
 ## Requirements
 
 - Python 3.8+
-- Flask (and standard library only beyond that)
+- Flask (and Python standard library beyond that)
 - Windows (tested); should work on Linux/Mac with minor tweaks
 - Internet access for:
   - Client-side IP geolocation (ip-api.com)
@@ -72,7 +70,7 @@ A simple, local-only honeypot and mini-SIEM written in Python (Flask) with a mod
 Once the app is running:
 
 - Open this URL in your browser:
-  - `http://localhost:5000/wp-login.php`
+  - http://localhost:5000/wp-login.php
 - Or use `curl`:
 
     curl http://localhost:5000/wp-login.php
@@ -94,16 +92,26 @@ Then refresh the dashboard in your browser. You should see:
 
     curl -X POST http://localhost:5000/admin/reset-events
 
+### Internet-facing use
+
+This project is suitable for deployment as a small internet-facing honeypot in a home-lab or research environment. If you expose it publicly:
+
+- Run it in an **isolated** environment (separate from production systems and sensitive data).
+- Treat all incoming traffic as potentially hostile.
+- Do not reuse any secrets, credentials, or keys from other environments.
+
 ## Architecture
 
 - **Honeypot traps**
   - Python socket listeners on high ports for SSH, FTP, RDP, MySQL, Redis, and MongoDB.
   - Each connection generates a JSON event appended to `data/events.json` (up to 10,000 events).
+
 - **Flask backend**
   - Serves the static dashboard (HTML/CSS/JS).
   - Exposes `/api/stats` which returns:
     - Aggregated counts (total events, last 24 hours, top IPs, top ports)
     - Recent events with enriched fields (IP, protocol, port, banner_sent, etc.).
+
 - **Frontend dashboard**
   - Single-page UI using:
     - Chart.js for:
@@ -113,26 +121,6 @@ Then refresh the dashboard in your browser. You should see:
     - Leaflet + OpenStreetMap for:
       - Geo-IP map of source IPs (markers sized or grouped by event count)
   - Periodically polls `/api/stats` to update tables and charts.
-
-## Customization
-
-- **Add or change trap services**
-  - Edit `backend/traps.py` to:
-    - Add new listeners
-    - Change ports or protocols
-    - Customize banner strings and log messages
-
-- **Change dashboard visuals**
-  - Edit `static/index.html` and related JS.
-  - You can:
-    - Adjust refresh interval
-    - Change chart types or colors
-    - Add/remove panels from the 2×2 analytics grid
-
-- **Event enrichment**
-  - Modify `backend/app.py` and `backend/traps.py` to:
-    - Add more fields (e.g., `country`, `asn`, `hostname`)
-    - Change how events are aggregated for `/api/stats`
 
 ## Troubleshooting
 
