@@ -35,7 +35,10 @@ def log_http_request(req):
 	  - message: f"HTTP {req.method} {req.path} from {ip}"
 	Uses EVENTS_LOCK and respects MAX_EVENTS, just like traps.py.
 	"""
-	ip = req.remote_addr or "unknown"
+	# Use X-Forwarded-For if present, else remote_addr
+	ip = req.headers.get("X-Forwarded-For", req.remote_addr)
+	if ip and "," in ip:
+		ip = ip.split(",")[0].strip()
 	# Try to determine the server port
 	try:
 		host_header = req.host  # e.g., "localhost:5000"
