@@ -340,12 +340,12 @@
 
         async function fetchStats() {
             try {
-                // Use Fly.io API on Netlify, local API when running locally
+                // Use Fly.io API unless running on localhost
                 let apiUrl;
-                if (window.location.hostname.endsWith('netlify.app')) {
-                    apiUrl = 'https://backend-weathered-voice-4887.fly.dev/api/stats';
-                } else {
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                     apiUrl = '/api/stats';
+                } else {
+                    apiUrl = 'https://backend-weathered-voice-4887.fly.dev/api/stats';
                 }
                 const response = await fetch(apiUrl);
                 if (!response.ok) return;
