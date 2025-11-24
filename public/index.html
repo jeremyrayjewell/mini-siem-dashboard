@@ -338,13 +338,8 @@
             geoMarkers.forEach(m => geoMap.removeLayer(m));
             geoMarkers = [];
             const markers = await buildGeoMarkers(events);
-            document.getElementById('geoMap').innerHTML = '';
-            if (markers.length === 0) {
-                // Always show a default marker at Null Island (0,0)
-                const marker = L.marker([0, 0]).addTo(geoMap);
-                marker.bindPopup("No valid geo data for recent events.<br>Check IP addresses and API limits.");
-                geoMarkers.push(marker);
-            } else {
+            // Always show the map, even if there are no markers
+            if (markers.length > 0) {
                 markers.forEach(m => {
                     const marker = L.marker([m.lat, m.lng]).addTo(geoMap);
                     marker.bindPopup(m.popup);
