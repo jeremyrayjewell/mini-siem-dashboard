@@ -180,17 +180,26 @@
             }));
             for (const ev of events) {
                 const geo = geoResults[ev.ip];
+                let lat, lng, country;
                 if (geo && typeof geo.latitude === "number" && typeof geo.longitude === "number") {
-                    const popup = `<strong>IP:</strong> ${ev.ip}<br>` +
-                        (geo.country ? `<strong>Country:</strong> ${geo.country}<br>` : "") +
-                        `<strong>Protocol:</strong> ${ev.protocol}<br>` +
-                        `<strong>Events:</strong> ${ipCounts[ev.ip]}`;
-                    markers.push({
-                        lat: geo.latitude,
-                        lng: geo.longitude,
-                        popup
-                    });
+                    lat = geo.latitude;
+                    lng = geo.longitude;
+                    country = geo.country;
+                } else {
+                    // Place unknown IPs at (0,0) with a warning
+                    lat = 0;
+                    lng = 0;
+                    country = null;
                 }
+                const popup = `<strong>IP:</strong> ${ev.ip}<br>` +
+                    (country ? `<strong>Country:</strong> ${country}<br>` : "<span style='color:#e11d48'>Unknown location</span><br>") +
+                    `<strong>Protocol:</strong> ${ev.protocol}<br>` +
+                    `<strong>Events:</strong> ${ipCounts[ev.ip]}`;
+                markers.push({
+                    lat,
+                    lng,
+                    popup
+                });
             }
             if (markers.length === 0) {
                 console.warn('No valid geo data for any IPs:', uniqueIPs);
