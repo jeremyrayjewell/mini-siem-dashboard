@@ -11,13 +11,21 @@ EVENTS_LOCK = threading.Lock()
 MAX_EVENTS = 10000
 
 BANNERS = {
-    2222: b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4\r\n",
-    2121: b"220 (Fake FTP Service)\r\n"
+    5022: b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4\r\n",
+    5021: b"220 (Fake FTP Service)\r\n",
+    53389: b"RDP Protocol Negotiation Failure\r\n",
+    53306: b"5.7.26 MySQL Community Server (GPL)\r\n",
+    56379: b"+PONG\r\n",
+    57017: b"MongoDB shell version v4.4.0\r\n"
 }
 
 SERVICES = [
-    {'port': 2222, 'protocol': 'SSH'},
-    {'port': 2121, 'protocol': 'FTP'}
+    {'port': 5022, 'protocol': 'SSH'},
+    {'port': 5021, 'protocol': 'FTP'},
+    {'port': 53389, 'protocol': 'RDP'},
+    {'port': 53306, 'protocol': 'MySQL'},
+    {'port': 56379, 'protocol': 'Redis'},
+    {'port': 57017, 'protocol': 'MongoDB'}
 ]
 
 def append_event(event):
@@ -39,27 +47,36 @@ def append_event(event):
 def handle_connection(conn, addr, port, protocol):
     ip = addr[0]
     src_port = addr[1]
+    banner_was_sent = False
+    banner = BANNERS.get(port)
+    if banner:
+        try:
+            conn.sendall(banner)
+            banner_was_sent = True
+        except Exception:
+            banner_was_sent = False
     event = {
         "timestamp": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         "ip": ip,
         "port": port,
         "protocol": protocol,
         "event_type": "connection",
+        "src_port": src_port,
+        "banner_sent": banner_was_sent,
         "message": f"Connection from {ip}:{src_port}"
     }
     append_event(event)
-    banner = BANNERS.get(port)
-    if banner:
-        try:
-            conn.sendall(banner)
-        except Exception:
-            pass
     conn.close()
 
 def listener(port, protocol):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('0.0.0.0', port))
+    try:
+        s.bind(('0.0.0.0', port))
+    except Exception as e:
+        print(f"[TRAP ERROR] Failed to bind {protocol} on port {port}: {e}")
+        s.close()
+        return
     s.listen(100)
     while True:
         try:
