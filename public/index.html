@@ -172,22 +172,28 @@
             }
             // Only unique IPs
             const uniqueIPs = [...new Set(events.map(ev => ev.ip))];
-            // Fetch geo data for all unique IPs
-            const geoResults = {};
-            await Promise.all(uniqueIPs.map(async ip => {
-                geoResults[ip] = await fetchGeo(ip);
-                console.log(`Geo lookup for IP ${ip}:`, geoResults[ip]);
-            }));
+            // Use backend-provided geo data if present
             for (const ev of events) {
-                const geo = geoResults[ev.ip];
-                if (geo && typeof geo.latitude === "number" && typeof geo.longitude === "number") {
+                let lat = ev.latitude;
+                let lng = ev.longitude;
+                let country = ev.country;
+                // If missing, fall back to frontend lookup
+                if (typeof lat !== 'number' || typeof lng !== 'number') {
+                    const geo = await fetchGeo(ev.ip);
+                    if (geo) {
+                        lat = geo.latitude;
+                        lng = geo.longitude;
+                        country = geo.country;
+                    }
+                }
+                if (typeof lat === 'number' && typeof lng === 'number') {
                     const popup = `<strong>IP:</strong> ${ev.ip}<br>` +
-                        (geo.country ? `<strong>Country:</strong> ${geo.country}<br>` : "") +
+                        (country ? `<strong>Country:</strong> ${country}<br>` : "") +
                         `<strong>Protocol:</strong> ${ev.protocol}<br>` +
                         `<strong>Events:</strong> ${ipCounts[ev.ip]}`;
                     markers.push({
-                        lat: geo.latitude,
-                        lng: geo.longitude,
+                        lat,
+                        lng,
                         popup
                     });
                 }
