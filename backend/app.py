@@ -3,6 +3,7 @@ from flask import Flask, jsonify, send_from_directory, request
 from datetime import datetime, timedelta
 from pathlib import Path
 from backend.traps import start_trap_listeners, EVENTS_FILE, EVENTS_LOCK, MAX_EVENTS
+from backend.geo import get_geo
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -128,8 +129,14 @@ def api_stats():
 		{'port': port, 'count': count} for port, count in port_counts.items()
 	], key=lambda x: x['count'], reverse=True)[:5]
 	recent_events = sorted(parsed_events, key=lambda e: e['_dt'], reverse=True)[:50]
+	# Enrich with geo data
 	for e in recent_events:
 		e.pop('_dt', None)
+		geo = get_geo(e.get('ip', ''))
+		if geo:
+			e['country'] = geo.get('country')
+			e['latitude'] = geo.get('latitude')
+			e['longitude'] = geo.get('longitude')
 	return jsonify({
 		'totalEvents': total_events,
 		'last24h': last24h_count,
