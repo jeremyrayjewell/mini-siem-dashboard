@@ -340,7 +340,14 @@
 
         async function fetchStats() {
             try {
-                const response = await fetch('https://backend-weathered-voice-4887.fly.dev/api/stats');
+                // Use Fly.io API on Netlify, local API when running locally
+                let apiUrl;
+                if (window.location.hostname.endsWith('netlify.app')) {
+                    apiUrl = 'https://backend-weathered-voice-4887.fly.dev/api/stats';
+                } else {
+                    apiUrl = '/api/stats';
+                }
+                const response = await fetch(apiUrl);
                 if (!response.ok) return;
                 const data = await response.json();
                 document.getElementById('totalEvents').textContent = data.totalEvents ?? '0';
