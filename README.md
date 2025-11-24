@@ -148,6 +148,8 @@ This project is suitable for deployment as a small internet-facing honeypot in a
 
 MIT
 
+[![Netlify Status](https://api.netlify.com/api/v1/badges/fdafd745-8454-424a-80df-87d9e43e92aa/deploy-status)](https://app.netlify.com/projects/mini-siem-dashboard/deploys)
+
 ---
 
 ## Author: **Jeremy Ray Jewell**
