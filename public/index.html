@@ -164,7 +164,7 @@
         }
 
         async function buildGeoMarkers(events) {
-            // Add markers for events with geo data, or fetch it if missing
+            // Always perform public IP geolocation lookups for all event IPs
             const markers = [];
             const ipCounts = {};
             for (const ev of events) {
@@ -172,28 +172,22 @@
             }
             // Only unique IPs
             const uniqueIPs = [...new Set(events.map(ev => ev.ip))];
-            // Use backend-provided geo data if present
+            // Fetch geo data for all unique IPs
+            const geoResults = {};
+            await Promise.all(uniqueIPs.map(async ip => {
+                geoResults[ip] = await fetchGeo(ip);
+                console.log(`Geo lookup for IP ${ip}:`, geoResults[ip]);
+            }));
             for (const ev of events) {
-                let lat = ev.latitude;
-                let lng = ev.longitude;
-                let country = ev.country;
-                // If missing, fall back to frontend lookup
-                if (typeof lat !== 'number' || typeof lng !== 'number') {
-                    const geo = await fetchGeo(ev.ip);
-                    if (geo) {
-                        lat = geo.latitude;
-                        lng = geo.longitude;
-                        country = geo.country;
-                    }
-                }
-                if (typeof lat === 'number' && typeof lng === 'number') {
+                const geo = geoResults[ev.ip];
+                if (geo && typeof geo.latitude === "number" && typeof geo.longitude === "number") {
                     const popup = `<strong>IP:</strong> ${ev.ip}<br>` +
-                        (country ? `<strong>Country:</strong> ${country}<br>` : "") +
+                        (geo.country ? `<strong>Country:</strong> ${geo.country}<br>` : "") +
                         `<strong>Protocol:</strong> ${ev.protocol}<br>` +
                         `<strong>Events:</strong> ${ipCounts[ev.ip]}`;
                     markers.push({
-                        lat,
-                        lng,
+                        lat: geo.latitude,
+                        lng: geo.longitude,
                         popup
                     });
                 }
