@@ -1,5 +1,12 @@
 # Mini SIEM Dashboard
 
+# Mini SIEM Dashboard
+
+🔴 Live demo: [https://mini-siem-dashboard.netlify.app/](https://mini-siem-dashboard.netlify.app/)  
+(Backend honeypot: [https://backend-weathered-voice-4887.fly.dev/](https://backend-weathered-voice-4887.fly.dev/))
+
+![Mini SIEM Dashboard screenshot](public/screenshot.png)
+
 A small honeypot + mini-SIEM written in Python (Flask) with a modern JavaScript dashboard.  
 It logs connection events from fake TCP services and displays basic analytics in a responsive web UI.
 
