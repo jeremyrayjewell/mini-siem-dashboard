@@ -1,16 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="icon" type="image/png" href="/public/favicon.png" />
     <meta charset="UTF-8">
     <title>Mini SIEM Dashboard</title>
+    <!-- Social Media Preview -->
+    <meta property="og:image" content="/public/screenshot.png" />
+    <meta property="og:title" content="Mini SIEM Dashboard" />
+    <meta property="og:description" content="A modern honeypot and mini-SIEM dashboard for home-lab and research." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/public/screenshot.png" />
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Leaflet CDN -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 2em; background: #f7f7f7; }
-        h1 { color: #333; }
+        body {
+            font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+            margin: 0;
+            background: #1e293b;
+            color: #cbd5e1;
+        }
+        .main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding-left: 2em;
+            padding-right: 2em;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: #14b8a6;
+            font-size: 2.6em;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 0.3em;
+        }
+        h2 {
+            color: #14b8a6;
+            font-size: 1.35em;
+            font-weight: 600;
+            margin-bottom: 0.5em;
+        }
         .stats { margin-bottom: 2em; }
         .analytics-grid {
             display: grid;
@@ -26,15 +57,17 @@
             }
         }
         .card {
-            background: #fff;
-            border: 1px solid #ccc;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            background: #e5e7eb;
+            border: 1px solid #14b8a6;
+            box-shadow: 0 2px 8px rgba(20,184,166,0.08);
             padding: 1em;
             min-height: 260px;
             max-height: 320px;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
+            border-radius: 10px;
+            color: #23293a;
         }
         .card > h2 {
             margin-bottom: 0.5em;
@@ -58,9 +91,43 @@
             max-height: 260px;
             margin: 0 auto;
         }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 1em; font-size: 0.95em; }
-        th, td { border: 1px solid #ccc; padding: 0.4em 0.6em; text-align: left; }
-        th { background: #eee; position: sticky; top: 0; z-index: 2; }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 1em;
+            font-size: 0.97em;
+            background: #e5e7eb;
+            color: #23293a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            border: 1px solid #14b8a6;
+            padding: 0.38em 0.6em;
+            text-align: left;
+        }
+        th {
+            background: #14b8a6;
+            color: #f8fafc;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        .ip-external { color: #14b8a6; font-weight: 600; }
+        .ip-internal { color: #64748b; font-weight: 500; }
+        .event-badge {
+            display: inline-block;
+            background: #14b8a6;
+            color: #f8fafc;
+            font-size: 0.93em;
+            font-weight: 600;
+            border-radius: 12px;
+            padding: 0.18em 0.7em;
+            margin: 0 0.1em;
+            letter-spacing: 0.02em;
+            box-shadow: 0 1px 4px rgba(20,184,166,0.08);
+        }
         .recent-events {
             max-height: 350px;
             overflow-y: auto;
@@ -75,86 +142,98 @@
     </style>
 </head>
 <body>
-    <!-- Top bar with links removed, will be in footer -->
-    <footer style="margin-top:2em;padding:0.5em 0 0.3em 0;border-top:1px solid #e5e7eb;text-align:center;color:#64748b;background:#f8fafc;font-size:0.88em;">
-        &copy; 2025 <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;">Jeremy Ray Jewell</a>
-    </footer>
-    <h1 style="margin-bottom:0.5em;">Mini SIEM Dashboard</h1>
-    <div style="display:flex;flex-wrap:wrap;gap:1.5em;margin-bottom:1.2em;align-items:center;">
-        <div style="background:#e0f2fe;border:1px solid #38bdf8;padding:0.5em 1em;border-radius:6px;font-size:1em;min-width:260px;">
-            <span style="font-weight:500;color:#0ea5e9">Send traffic to:</span>
-            <span style="font-family:monospace;color:#0ea5e9"> https://backend-weathered-voice-4887.fly.dev:<b>21, 5022, 53389, 53306, 56379, 57017, 8080, 5000</b></span>
-        </div>
-        <details style="background:#f1f5f9;border:1px solid #94a3b8;padding:0.5em 1em;border-radius:6px;font-size:0.93em;min-width:260px;">
-            <summary style="font-weight:500;font-size:0.98em;cursor:pointer;">Architecture</summary>
-            <ul style="margin-top:0.5em;margin-bottom:0.5em;">
-                <li><b>Backend:</b> Python Flask app (Fly.io) logs honeypot events and exposes <code>/api/stats</code>.</li>
-                <li><b>Frontend:</b> Static dashboard (Netlify) fetches stats, displays analytics, and geo-IP map.</li>
-                <li><b>Geo-IP:</b> All geolocation is server-side via ipwho.is API, cached for efficiency.</li>
-                <li><b>Ports:</b> SSH (5022), FTP (21/5021), RDP (53389), MySQL (53306), Redis (56379), MongoDB (57017), HTTP (8080/5000).</li>
-            </ul>
-        </details>
-    </div>
-    <div class="stats" style="display: flex; gap: 2em; align-items: center; margin-bottom: 2em;">
-        <div style="flex: 1; font-size: 1.1em;">
-            <strong>Total Events:</strong> <span id="totalEvents">0</span>
-        </div>
-        <div style="flex: 1; font-size: 1.1em;">
-            <strong>Last 24 Hours:</strong> <span id="last24h">0</span>
+    <div style="background:#0ea5e9;border-bottom:1px solid #38bdf8;padding:0.7em 0 0.7em 0;margin-bottom:1.2em;display:flex;justify-content:center;width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;">
+        <div style="max-width:1200px;width:100%;display:flex;align-items:center;justify-content:space-between;margin:0 auto;">
+            <div style="font-weight:bold;font-size:1.25em;color:#f8fafc;">Jeremy Ray Jewell</div>
+            <div>
+                <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#f8fafc;text-decoration:none;margin-right:1.2em;font-weight:500;">GitHub</a>
+                <a href="https://www.linkedin.com/in/jeremyrayjewell" target="_blank" style="color:#f8fafc;text-decoration:none;margin-right:1.2em;font-weight:500;">LinkedIn</a>
+                <a href="https://github.com/jeremyrayjewell/mini-siem-dashboard" target="_blank" style="color:#f8fafc;text-decoration:none;font-weight:500;">Repo</a>
+            </div>
         </div>
     </div>
-    <section class="analytics-grid">
-        <div class="card">
-            <h2>Geo-IP Map</h2>
-            <div id="geoMap" style="height: 100%; width: 100%;"></div>
+    <div class="main-content">
+        <h1 style="margin-bottom:0.5em;">Mini SIEM Dashboard</h1>
+        <div style="display:flex;flex-wrap:nowrap;gap:1.5em;margin-bottom:1.2em;align-items:flex-start;">
+        <div style="background:transparent;border:none;padding:0.5em 1em;border-radius:6px;font-size:1em;min-width:260px;">
+                <span style="font-weight:500;color:#0ea5e9">Send traffic to:</span>
+                <span style="font-family:monospace;color:#0ea5e9"> https://backend-weathered-voice-4887.fly.dev</span>
+            </div>
+    <details style="padding:0.2em 0.7em;font-size:0.82em;width:260px;min-width:180px;max-width:260px;box-sizing:border-box;">
+                <summary style="font-weight:500;font-size:0.98em;cursor:pointer;">Architecture</summary>
+                <ul style="margin-top:0.5em;margin-bottom:0.5em;">
+                    <li><b>Backend:</b> Python Flask app (Fly.io) logs honeypot events and exposes <code>/api/stats</code>.</li>
+                    <li><b>Frontend:</b> Static dashboard (Netlify) fetches stats, displays analytics, and geo-IP map.</li>
+                    <li><b>Geo-IP:</b> All geolocation is server-side via ipwho.is API, cached for efficiency.</li>
+                    <li><b>Ports:</b> SSH (5022), FTP (21/5021), RDP (53389), MySQL (53306), Redis (56379), MongoDB (57017), HTTP (8080/5000).</li>
+                </ul>
+            </details>
         </div>
-        <div class="card">
-            <h2>Events Over Time</h2>
-            <canvas id="eventsOverTimeChart"></canvas>
+        <div class="stats" style="display: flex; gap: 2em; align-items: center; margin-bottom: 2em;">
+            <div style="flex: 1; font-size: 1.1em;">
+                <strong>Total Events:</strong> <span id="totalEvents">0</span>
+            </div>
+            <div style="flex: 1; font-size: 1.1em;">
+                <strong>Last 24 Hours:</strong> <span id="last24h">0</span>
+            </div>
         </div>
-        <div class="card">
-            <h2>Top IPs</h2>
-            <canvas id="topIPsChart"></canvas>
+        <!-- ...existing code for analytics, map, tables, etc. should also be inside .main-content... -->
+    </div>
+    </div>
+    <div class="main-content">
+        <section class="analytics-grid">
+            <div class="card">
+                <h2>Geo-IP Map</h2>
+                <div id="geoMap" style="height: 100%; width: 100%;"></div>
+            </div>
+            <div class="card">
+                <h2>Events Over Time</h2>
+                <canvas id="eventsOverTimeChart"></canvas>
+            </div>
+            <div class="card">
+                <h2>Top IPs</h2>
+                <canvas id="topIPsChart"></canvas>
+            </div>
+            <div class="card">
+                <h2>Events by Protocol</h2>
+                <canvas id="protocolChart"></canvas>
+            </div>
+        </section>
+        <div style="display: flex; gap: 2em; align-items: flex-start; margin-bottom: 2em;">
+            <div style="flex: 1;">
+                <h2>Top IPs (Table)</h2>
+                <table id="topIPs">
+                    <thead><tr><th>IP</th><th>Count</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div style="flex: 1;">
+                <h2>Top Ports</h2>
+                <table id="topPorts">
+                    <thead><tr><th>Port</th><th>Count</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
-        <div class="card">
-            <h2>Events by Protocol</h2>
-            <canvas id="protocolChart"></canvas>
-        </div>
-    </section>
-    <div style="display: flex; gap: 2em; align-items: flex-start; margin-bottom: 2em;">
-        <div style="flex: 1;">
-            <h2>Top IPs (Table)</h2>
-            <table id="topIPs">
-                <thead><tr><th>IP</th><th>Count</th></tr></thead>
+        <h2>Recent Events</h2>
+        <div class="recent-events">
+        <table id="recentEvents" class="compact-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>IP</th>
+                        <th>Port</th>
+                        <th>Src Port</th>
+                        <th>Protocol</th>
+                        <th>Type</th>
+                        <th>Message</th>
+                        <th>User Agent</th>
+                        <th>Banner Sent</th>
+                    </tr>
+                </thead>
                 <tbody></tbody>
             </table>
         </div>
-        <div style="flex: 1;">
-            <h2>Top Ports</h2>
-            <table id="topPorts">
-                <thead><tr><th>Port</th><th>Count</th></tr></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
-    <h2>Recent Events</h2>
-    <div class="recent-events">
-    <table id="recentEvents" class="compact-table">
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th>IP</th>
-                    <th>Port</th>
-                    <th>Src Port</th>
-                    <th>Protocol</th>
-                    <th>Type</th>
-                    <th>Message</th>
-                    <th>User Agent</th>
-                    <th>Banner Sent</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
     </div>
     <script>
         // Chart.js chart objects
@@ -359,20 +438,29 @@
                 // Recent Events Table
                 let eventRows = '';
                 (data.recentEvents ?? []).forEach(ev => {
-                    // Tag private/internal IPs
-                    let ipLabel = '';
+                    // Tag private/internal/external IPs
+                    let ipClass = 'ip-external', ipLabel = '';
                     const ip = ev.ip_display ?? ev.ip ?? '';
-                    if (/^127\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(internal)</span>';
-                    else if (/^192\.168\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(LAN)</span>';
-                    else if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(Fly internal)</span>';
+                    if (/^127\./.test(ip)) { ipClass = 'ip-internal'; ipLabel = ' <span style="color:#64748b;font-size:0.9em">(internal)</span>'; }
+                    else if (/^192\.168\./.test(ip)) { ipClass = 'ip-internal'; ipLabel = ' <span style="color:#64748b;font-size:0.9em">(LAN)</span>'; }
+                    else if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) { ipClass = 'ip-internal'; ipLabel = ' <span style="color:#64748b;font-size:0.9em">(Fly internal)</span>'; }
+
+                    // Synthesize message
+                    let msg = '';
+                    if (ev.protocol === "HTTP") {
+                        msg = `HTTP ${ev.method || ""} ${ev.path || ""} from ${ip}`;
+                    } else {
+                        msg = `Connection from ${ip}${ev.src_port ? ":" + ev.src_port : ""} via ${ev.protocol}`;
+                    }
+
                     eventRows += `<tr>
                         <td>${ev.timestamp ?? ''}</td>
-                        <td>${ip}${ipLabel}</td>
+                        <td class="${ipClass}">${ip}${ipLabel}</td>
                         <td>${ev.port ?? ''}</td>
                         <td>${ev.src_port ?? ''}</td>
-                        <td>${ev.protocol ?? ''}</td>
-                        <td>${ev.event_type ?? ''}</td>
-                        <td>${ev.message ?? ''}</td>
+                        <td><span class="event-badge">${ev.protocol ?? ''}</span></td>
+                        <td><span class="event-badge">${ev.event_type ?? ''}</span></td>
+                        <td>${msg}</td>
                         <td>${ev.user_agent ?? ''}</td>
                         <td>${typeof ev.banner_sent === 'boolean' ? String(ev.banner_sent) : ''}</td>
                     </tr>`;
@@ -395,7 +483,9 @@
         setInterval(fetchStats, 5000);
     </script>
 </body>
-    <footer style="margin-top:2em;padding:0.5em 0 0.3em 0;border-top:1px solid #e5e7eb;text-align:center;color:#64748b;background:#f8fafc;font-size:0.88em;">
-        &copy; 2025 <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;">Jeremy Ray Jewell</a>
+    <footer style="margin-top:2em;padding:0.5em 0 0.3em 0;border-top:1px solid #e5e7eb;text-align:center;color:#64748b;background:#f8fafc;font-size:0.88em;width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;">
+        <div style="max-width:1200px;margin:0 auto;">
+            &copy; 2025 <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;">Jeremy Ray Jewell</a>
+        </div>
     </footer>
 </html>

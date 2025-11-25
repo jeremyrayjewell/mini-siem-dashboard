@@ -1,148 +1,224 @@
 # Mini SIEM Dashboard
 
-A simple honeypot and mini-SIEM written in Python (Flask) with a modern JavaScript dashboard. It logs connection events from fake TCP services and displays analytics in a responsive web UI. It is designed for home-lab and research use, and can be exposed to the internet as a small, focused honeypot — but it is **not** a full-featured enterprise SIEM.
+A small honeypot + mini-SIEM written in Python (Flask) with a modern JavaScript dashboard.  
+It logs connection events from fake TCP services and displays basic analytics in a responsive web UI.
+
+This is designed for **home-lab / research / portfolio** use. It can safely be exposed to the internet as a lightweight honeypot, but it is **not** a full-featured enterprise SIEM.
+
+---
 
 ## Features
 
-- Honeypot listeners for SSH, FTP, RDP, MySQL, Redis, MongoDB (high ports)
-- Logs connection events to `data/events.json` (max 10,000 events)
-- Enriched event schema:
-  - `timestamp`, `ip`, `port`, `protocol`, `event_type`, `src_port`, `banner_sent`, `user_agent`, `message`
-- Flask backend exposes `/api/stats` for dashboard polling
-- Dashboard UI with:
-  - 2×2 grid of analytics:
-    - Geo-IP map (Leaflet)
-    - Events Over Time (Chart.js)
-    - Top IPs (Chart.js)
-    - Events by Protocol (Chart.js)
-  - Recent Events table
-  - Top IPs and Top Ports tables
-  - Responsive, compact layout
-- Client-side IP geolocation (`ip-api.com`) for map markers
+- **Multi-service honeypot listeners**
+  - Fake services for SSH, FTP, RDP, MySQL, Redis, MongoDB, and HTTP
+  - Configurable ports (high ports by default for lab / container hosting)
+
+- **Structured event logging**
+  - Events appended to `data/events.json` (capped at ~10,000 events)
+  - Enriched event schema, for example:
+    - `timestamp` – ISO 8601 UTC
+    - `ip` – normalized source IP (IPv4 or IPv6)
+    - `port` – destination port
+    - `src_port` – source port
+    - `protocol` – `HTTP`, `SSH`, `FTP`, `RDP`, `MySQL`, `Redis`, `MongoDB`
+    - `event_type` – `request`, `connection`, etc.
+    - `method`, `path` – HTTP method/path when applicable
+    - `user_agent` – HTTP User-Agent when present
+    - `banner_sent` – whether a honeypot banner was sent
+
+- **Backend-only Geo-IP lookups**
+  - Flask backend enriches public IPs using `ipwho.is`
+  - Private/internal addresses (127.0.0.1, 192.168.x.x, 10.x.x.x, 172.16/12) are **not** geolocated
+  - Results cached on disk (`data/geo_cache.json`) to avoid repeated API calls
+
+- **Dashboard UI**
+  - Single-page dashboard with:
+    - **Geo-IP map** (Leaflet + OpenStreetMap)
+    - **Events over time** (Chart.js)
+    - **Top IPs** (Chart.js)
+    - **Events by protocol** (Chart.js)
+    - **Top IPs (table)**
+    - **Top ports (table)**
+    - **Recent events** table with:
+      - synthesized, human-readable messages
+      - clear distinction between external and internal IPs
+  - Dark page background with light “cards” and teal accent color
+  - Responsive layout with cards in a grid on desktop and stacked on smaller screens
+  - Auto-refresh every few seconds for a “live” SIEM feel
+
+---
 
 ## Requirements
 
 - Python 3.8+
-- Flask (and Python standard library beyond that)
-- Windows (tested); should work on Linux/Mac with minor tweaks
+- Recommended Python packages (via `requirements.txt`), for example:
+  - `Flask`
+  - `requests`
 - Internet access for:
-  - Client-side IP geolocation (ip-api.com)
-  - Map tiles (OpenStreetMap via Leaflet)
+  - Backend Geo-IP lookups (ipwho.is)
+  - Map tiles (OpenStreetMap via Leaflet) in the browser
 
-## Setup
+Tested on Windows; should also work on Linux / macOS with minor or no changes.
 
-1. **Clone the repository:**
+---
 
-    git clone https://github.com/jeremyrayjewell/mini-siem-dashboard.git
-    cd mini-siem-dashboard
+## Local Setup
 
-2. **Create and activate a virtual environment (optional but recommended):**
+1. **Clone the repository**
 
-   Windows (PowerShell):
+       git clone https://github.com/jeremyrayjewell/mini-siem-dashboard.git
+       cd mini-siem-dashboard
 
-    python -m venv venv
-    .\venv\Scripts\Activate.ps1
+2. **Create and activate a virtual environment (optional, but recommended)**
 
-   Linux / Mac:
+   **Windows (PowerShell):**
 
-    python3 -m venv venv
-    source venv/bin/activate
+       python -m venv venv
+       .\venv\Scripts\Activate.ps1
 
-3. **Install dependencies:**
+   **Linux / macOS:**
 
-   If you have a `requirements.txt`:
+       python3 -m venv venv
+       source venv/bin/activate
 
-    pip install -r requirements.txt
+3. **Install dependencies**
 
-   Or install Flask directly:
+   If a `requirements.txt` is present:
 
-    pip install flask
+       pip install -r requirements.txt
 
-4. **Run the app:**
+   Or minimally:
 
-    python -m backend.app
+       pip install flask requests
 
-   The dashboard will be available at:  
-   http://localhost:5000
+4. **Run the app locally**
+
+   From the repo root:
+
+       python -m backend.app
+
+   By default, the dashboard will be available at:
+
+   - http://localhost:5000
+
+---
 
 ## Quick Test
 
-Once the app is running:
+With the app running locally:
 
-- Open this URL in your browser:
-  - http://localhost:5000/wp-login.php
-- Or use `curl`:
+- In your browser, visit:
 
-    curl http://localhost:5000/wp-login.php
+  - `http://localhost:5000/wp-login.php`
 
-Then refresh the dashboard in your browser. You should see:
+- Or generate a quick HTTP event with `curl`:
 
-- New events in the **Recent Events** table
-- Updates in the **Top IPs**, **Top Ports**, and chart panels
+      curl http://localhost:5000/wp-login.php
+
+Then open the dashboard (http://localhost:5000) and you should see:
+
+- New entries in the **Recent Events** table  
+- Updated **Top IPs**, **Top Ports**, and charts
+
+For TCP honeypot services, you can also hit the configured ports with tools like `nmap`, `telnet`, or `nc` from another host.
+
+---
 
 ## Usage
 
-- The dashboard auto-refreshes every 5 seconds.
-- Events are logged from both:
-  - Honeypot TCP listeners (SSH/FTP/RDP/MySQL/Redis/MongoDB on high ports)
-  - HTTP requests (excluding dashboard polling)
-- The Geo-IP map shows markers for **public IPs only**:
-  - Local/private IPs (e.g., `127.0.0.1`, `192.168.x.x`) are not geolocated.
-- To reset all events, send a POST request:
+- The dashboard periodically polls `/api/stats` and refreshes:
+  - Total events / last 24 hours
+  - Top IPs and ports
+  - Charts and the Recent Events table
 
-    curl -X POST http://localhost:5000/admin/reset-events
+- Events are generated from:
+  - **Honeypot TCP traps**: SSH, FTP, RDP, MySQL, Redis, MongoDB on configurable ports
+  - **HTTP requests**: most paths other than the dashboard itself (e.g., `/wp-login.php`, `/admin`, etc.)
 
-### Internet-facing use
+- The **Geo-IP map**:
+  - Only shows markers for **public** IP addresses
+  - Private/internal IPs (127.0.0.1, 192.168.x.x, 10.x.x.x, 172.16/12) are **skipped** for geolocation
+  - Uses backend Geo-IP lookup + caching; the browser does not talk to any external Geo-IP API directly
 
-This project is suitable for deployment as a small internet-facing honeypot in a home-lab or research environment. If you expose it publicly:
+- To reset all events (dangerous; clears history):
 
-- Run it in an **isolated** environment (separate from production systems and sensitive data).
-- Treat all incoming traffic as potentially hostile.
-- Do not reuse any secrets, credentials, or keys from other environments.
+      curl -X POST http://localhost:5000/admin/reset-events
+
+---
+
+## Internet-Facing / Lab Deployment Notes
+
+This project works well as a small internet-facing honeypot for a home lab or research:
+
+- Run it in an **isolated environment**:
+  - Dedicated VM or container
+  - No direct access to production systems or sensitive data
+
+- Treat **all** incoming traffic as potentially hostile:
+  - The services are fake, but the network stack is real
+  - Don’t reuse secrets, credentials, or keys from other environments
+
+- Typical deployment pattern:
+  - **Backend** on a small VPS or PaaS (e.g. Fly.io) exposing TCP and HTTP ports
+  - **Static dashboard** served by the same Flask app or a static host (e.g. Netlify)
+
+---
 
 ## Architecture
 
-- **Honeypot traps**
-  - Python socket listeners on high ports for SSH, FTP, RDP, MySQL, Redis, and MongoDB.
-  - Each connection generates a JSON event appended to `data/events.json` (up to 10,000 events).
+- **Honeypot traps (`backend/traps.py`)**
+  - Python socket listeners for:
+    - SSH, FTP, RDP, MySQL, Redis, MongoDB (on high ports by default)
+  - Each connection is normalized into a JSON event and appended to `data/events.json`
+  - Basic banners can be served for some protocols (`banner_sent` flag)
 
-- **Flask backend**
-  - Serves the static dashboard (HTML/CSS/JS).
-  - Exposes `/api/stats` which returns:
-    - Aggregated counts (total events, last 24 hours, top IPs, top ports)
-    - Recent events with enriched fields (IP, protocol, port, banner_sent, etc.).
+- **Flask backend (`backend/app.py`)**
+  - Serves the static dashboard (HTML/CSS/JS)
+  - Exposes a single REST endpoint, `/api/stats`, which returns:
+    - Aggregated metrics:
+      - `totalEvents`
+      - `last24h`
+      - `topIPs` (with counts)
+      - `topPorts`
+    - `recentEvents` (most recent events with enriched fields)
+    - `geoIPs` (public IPs with country + lat/lon for the map)
+  - Performs server-side Geo-IP lookups via ipwho.is and caches results
 
 - **Frontend dashboard**
-  - Single-page UI using:
-    - Chart.js for:
-      - Events Over Time (line chart)
+  - Plain HTML/CSS/JS (no heavy framework)
+  - Uses:
+    - **Chart.js** for:
+      - Events over time (line chart)
       - Top IPs (bar chart)
-      - Events by Protocol (donut/pie chart)
-    - Leaflet + OpenStreetMap for:
-      - Geo-IP map of source IPs (markers sized or grouped by event count)
-  - Periodically polls `/api/stats` to update tables and charts.
+      - Events by protocol (bar / donut)
+    - **Leaflet + OpenStreetMap** for:
+      - Geo-IP map of source IPs
+  - Renders:
+    - Top IPs / ports tables
+    - Recent Events table with synthesized message strings:
+      - HTTP: `HTTP <METHOD> <PATH> from <IP>`
+      - TCP traps: `Connection from <IP>:<SRC_PORT> via <PROTOCOL>`
+
+---
 
 ## Troubleshooting
 
-- **Map shows "no geo data available yet"**
-  - Ensure you have events from **public IPs**.
-  - Local/private IPs are intentionally skipped for geolocation.
-  - Confirm that the browser has internet access (needed for ip-api.com and map tiles).
+- **Map is empty / “no geo data yet”**
+  - Confirm you have events from **public IPs**
+  - Local/private IPs are intentionally not geolocated
+  - Ensure the server can reach `https://ipwho.is/` and that the browser can load map tiles
 
-- **Ports fail to bind**
-  - Check that:
-    - The ports are not already in use.
-    - You have permission to bind to those ports on your OS.
-  - You can change the port numbers in `backend/traps.py`.
+- **Ports won’t bind / address in use**
+  - Check that the desired ports aren’t already in use
+  - On Linux/macOS, you may need elevated privileges to bind to low ports
+  - You can change ports in `backend/traps.py`
 
-- **No events are appearing**
-  - Verify the app is running and `data/events.json` is being updated.
-  - Make test requests (see **Quick Test** section).
-  - Check the terminal output for any Python exceptions.
+- **No events appearing**
+  - Confirm `backend.app` is running and `data/events.json` is being updated
+  - Generate test traffic (see **Quick Test**)
+  - Check the console logs for Python exceptions
 
-- **Client-side geolocation not working**
-  - Verify internet connectivity from the browser.
-  - Ensure that calls to `ip-api.com` are not blocked by a firewall or browser extensions.
+---
 
 ## License
 
@@ -152,7 +228,7 @@ MIT
 
 ---
 
-## Author: **Jeremy Ray Jewell**
+## Author
 
-[GitHub](https://github.com/jeremyrayjewell)  
-[LinkedIn](https://www.linkedin.com/in/jeremyrayjewell)  
+Jeremy  
+[GitHub](https://github.com/jeremyrayjewell) · [LinkedIn](https://www.linkedin.com/in/jeremyrayjewell)
