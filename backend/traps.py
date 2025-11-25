@@ -45,8 +45,23 @@ def append_event(event):
             json.dump(events, f)
 
 def handle_connection(conn, addr, port, protocol):
-    ip = addr[0]
+    ip_raw = addr[0]
     src_port = addr[1]
+    ipv4 = None
+    ipv6 = None
+    # If multiple IPs, check for IPv4 and IPv6
+    for part in str(ip_raw).split(','):
+        part = part.strip()
+        try:
+            import ipaddress
+            addr_obj = ipaddress.ip_address(part)
+            if addr_obj.version == 4 and not ipv4:
+                ipv4 = part
+            elif addr_obj.version == 6 and not ipv6:
+                ipv6 = part
+        except Exception:
+            continue
+    ip = ipv4 if ipv4 else (ipv6 if ipv6 else ip_raw)
     banner_was_sent = False
     banner = BANNERS.get(port)
     if banner:
@@ -58,6 +73,7 @@ def handle_connection(conn, addr, port, protocol):
     event = {
         "timestamp": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         "ip": ip,
+        "ip_v6": ipv6 if ipv6 else (ip if ':' in ip else ''),
         "port": port,
         "protocol": protocol,
         "event_type": "connection",

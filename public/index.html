@@ -125,7 +125,6 @@
                 <tr>
                     <th>Timestamp</th>
                     <th>IP</th>
-                    <th>IPv6</th>
                     <th>Port</th>
                     <th>Src Port</th>
                     <th>Protocol</th>
@@ -341,10 +340,15 @@
                 // Recent Events Table
                 let eventRows = '';
                 (data.recentEvents ?? []).forEach(ev => {
+                    // Tag private/internal IPs
+                    let ipLabel = '';
+                    const ip = ev.ip_display ?? ev.ip ?? '';
+                    if (/^127\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(internal)</span>';
+                    else if (/^192\.168\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(LAN)</span>';
+                    else if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) ipLabel = ' <span style="color:#64748b;font-size:0.9em">(Fly internal)</span>';
                     eventRows += `<tr>
                         <td>${ev.timestamp ?? ''}</td>
-                        <td>${ev.ip_display ?? ev.ip ?? ''}</td>
-                        <td>${ev.ip_v6 ?? ''}</td>
+                        <td>${ip}${ipLabel}</td>
                         <td>${ev.port ?? ''}</td>
                         <td>${ev.src_port ?? ''}</td>
                         <td>${ev.protocol ?? ''}</td>
