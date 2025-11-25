@@ -75,23 +75,30 @@
     </style>
 </head>
 <body>
-    <h1>Mini SIEM Dashboard</h1>
-    <div class="honeypot-info" style="background:#e0f2fe;border:1px solid #38bdf8;padding:1em;margin-bottom:1.5em;border-radius:8px;">
-        <strong>Send traffic to:</strong>
-        <span style="font-family:monospace;color:#0ea5e9">https://backend-weathered-voice-4887.fly.dev:<b>21, 5022, 53389, 53306, 56379, 57017, 8080, 5000</b></span>
-        <br>
-        <span style="font-size:0.95em;color:#64748b">Events sent to these ports will appear in real time on this dashboard.</span>
+    <div style="background:#f8fafc;border-bottom:1px solid #e5e7eb;padding:0.7em 0 0.7em 0;margin-bottom:1.2em;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-weight:bold;font-size:1.25em;color:#0ea5e9;">Jeremy Ray Jewell</div>
+        <div>
+            <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;margin-right:1.2em;">GitHub</a>
+            <a href="https://www.linkedin.com/in/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;margin-right:1.2em;">LinkedIn</a>
+            <a href="https://github.com/jeremyrayjewell/mini-siem-dashboard" target="_blank" style="color:#0ea5e9;text-decoration:none;">Repo</a>
+        </div>
     </div>
-    <details class="project-architecture" style="background:#f1f5f9;border:1px solid #94a3b8;padding:1em;margin-bottom:2em;border-radius:8px;">
-        <summary style="font-weight:bold;font-size:1.1em;cursor:pointer;">Project Architecture</summary>
-        <ul style="margin-top:0.5em;margin-bottom:0.5em;">
-            <li><b>Backend:</b> Python Flask app (deployed on Fly.io) logs events from honeypot ports and exposes <code>/api/stats</code> for dashboard data.</li>
-            <li><b>Frontend:</b> Static dashboard (hosted on Netlify) fetches stats from backend, displays analytics, and visualizes geo-IP data on a map.</li>
-            <li><b>Geo-IP:</b> All IP geolocation is performed server-side using the ipwho.is API, with results cached for efficiency.</li>
-            <li><b>Ports:</b> SSH (5022), FTP (21/5021), RDP (53389), MySQL (53306), Redis (56379), MongoDB (57017), HTTP (8080/5000).</li>
-        </ul>
-        <span style="font-size:0.95em;color:#64748b">Designed for portfolio demonstration and real-time SIEM analytics.</span>
-    </details>
+    <h1 style="margin-bottom:0.5em;">Mini SIEM Dashboard</h1>
+    <div style="display:flex;flex-wrap:wrap;gap:1.5em;margin-bottom:1.2em;align-items:center;">
+        <div style="background:#e0f2fe;border:1px solid #38bdf8;padding:0.5em 1em;border-radius:6px;font-size:1em;min-width:260px;">
+            <span style="font-weight:500;color:#0ea5e9">Send traffic to:</span>
+            <span style="font-family:monospace;color:#0ea5e9"> https://backend-weathered-voice-4887.fly.dev:<b>21, 5022, 53389, 53306, 56379, 57017, 8080, 5000</b></span>
+        </div>
+        <details style="background:#f1f5f9;border:1px solid #94a3b8;padding:0.5em 1em;border-radius:6px;font-size:1em;min-width:260px;">
+            <summary style="font-weight:500;font-size:1em;cursor:pointer;">Architecture</summary>
+            <ul style="margin-top:0.5em;margin-bottom:0.5em;">
+                <li><b>Backend:</b> Python Flask app (Fly.io) logs honeypot events and exposes <code>/api/stats</code>.</li>
+                <li><b>Frontend:</b> Static dashboard (Netlify) fetches stats, displays analytics, and geo-IP map.</li>
+                <li><b>Geo-IP:</b> All geolocation is server-side via ipwho.is API, cached for efficiency.</li>
+                <li><b>Ports:</b> SSH (5022), FTP (21/5021), RDP (53389), MySQL (53306), Redis (56379), MongoDB (57017), HTTP (8080/5000).</li>
+            </ul>
+        </details>
+    </div>
     <div class="stats" style="display: flex; gap: 2em; align-items: center; margin-bottom: 2em;">
         <div style="flex: 1; font-size: 1.1em;">
             <strong>Total Events:</strong> <span id="totalEvents">0</span>
@@ -154,7 +161,7 @@
         </table>
     </div>
         <footer style="margin-top:3em;padding:1.5em 0 0.5em 0;border-top:1px solid #e5e7eb;text-align:center;color:#334155;background:#f8fafc;font-size:1.05em;">
-            <div style="margin-bottom:0.5em;font-weight:bold;font-size:1.1em;">Author: <span style="color:#0ea5e9">Jeremy Ray Jewell</span></div>
+        <div style="margin-bottom:0.5em;font-weight:bold;font-size:1.1em;"><span style="color:#0ea5e9">Jeremy Ray Jewell</span></div>
             <div style="margin-bottom:0.5em;">
                 <a href="https://github.com/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;margin-right:1.2em;">GitHub</a>
                 <a href="https://www.linkedin.com/in/jeremyrayjewell" target="_blank" style="color:#0ea5e9;text-decoration:none;margin-right:1.2em;">LinkedIn</a>
