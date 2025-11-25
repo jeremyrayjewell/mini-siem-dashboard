@@ -125,6 +125,7 @@
                 <tr>
                     <th>Timestamp</th>
                     <th>IP</th>
+                    <th>IPv6</th>
                     <th>Port</th>
                     <th>Src Port</th>
                     <th>Protocol</th>
@@ -342,7 +343,8 @@
                 (data.recentEvents ?? []).forEach(ev => {
                     eventRows += `<tr>
                         <td>${ev.timestamp ?? ''}</td>
-                        <td>${ev.ip ?? ''}</td>
+                        <td>${ev.ip_display ?? ev.ip ?? ''}</td>
+                        <td>${ev.ip_v6 ?? ''}</td>
                         <td>${ev.port ?? ''}</td>
                         <td>${ev.src_port ?? ''}</td>
                         <td>${ev.protocol ?? ''}</td>

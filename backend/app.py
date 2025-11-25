@@ -194,10 +194,37 @@ def api_stats():
 		{'port': port, 'count': count} for port, count in port_counts.items()
 	], key=lambda x: x['count'], reverse=True)[:5]
 	recent_events = sorted(parsed_events, key=lambda e: e['_dt'], reverse=True)[:50]
-	# Enrich with geo data
+	# Enrich with geo data and prefer IPv4 for display
 	for e in recent_events:
 		e.pop('_dt', None)
-		geo = get_geo(e.get('ip', ''))
+		ip = e.get('ip', '')
+		ipv4 = None
+		ipv6 = None
+		try:
+			addr = ipaddress.ip_address(ip)
+			if addr.version == 4:
+				ipv4 = ip
+			else:
+				ipv6 = ip
+		except Exception:
+			pass
+		# Try to extract IPv4 from xff if not present
+		if not ipv4 and 'xff' in e:
+			xff = e['xff']
+			for part in xff.split(','):
+				part = part.strip()
+				try:
+					addr = ipaddress.ip_address(part)
+					if addr.version == 4:
+						ipv4 = part
+						break
+					elif addr.version == 6 and not ipv6:
+						ipv6 = part
+				except Exception:
+					continue
+		e['ip_display'] = ipv4 if ipv4 else ip
+		e['ip_v6'] = ipv6 if ipv6 else (ip if ':' in ip else '')
+		geo = get_geo(ip)
 		if geo:
 			e['country'] = geo.get('country')
 			e['latitude'] = geo.get('latitude')
