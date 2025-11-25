@@ -1,5 +1,7 @@
 # Mini SIEM Dashboard
 
+# [![Netlify Status](https://api.netlify.com/api/v1/badges/fdafd745-8454-424a-80df-87d9e43e92aa/deploy-status)](https://app.netlify.com/projects/mini-siem-dashboard/deploys)
+
 # Mini SIEM Dashboard
 
 🔴 Live demo: [https://mini-siem-dashboard.netlify.app/](https://mini-siem-dashboard.netlify.app/)  
@@ -229,9 +231,8 @@ This project works well as a small internet-facing honeypot for a home lab or re
 
 ## License
 
-MIT
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[![Netlify Status](https://api.netlify.com/api/v1/badges/fdafd745-8454-424a-80df-87d9e43e92aa/deploy-status)](https://app.netlify.com/projects/mini-siem-dashboard/deploys)
 
 ---
 
