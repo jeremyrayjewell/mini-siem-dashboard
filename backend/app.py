@@ -86,9 +86,24 @@ def log_http_request(req):
 	Uses EVENTS_LOCK and respects MAX_EVENTS, just like traps.py.
 	"""
 	# Use X-Forwarded-For if present, else remote_addr
-	ip = req.headers.get("X-Forwarded-For", req.remote_addr)
-	if ip and "," in ip:
-		ip = ip.split(",")[0].strip()
+	ip_raw = req.headers.get("X-Forwarded-For", req.remote_addr)
+	ip = ip_raw
+	ipv4 = None
+	ipv6 = None
+	# If multiple IPs, check for IPv4 and IPv6
+	if ip_raw:
+		for part in ip_raw.split(","):
+			part = part.strip()
+			try:
+				addr = ipaddress.ip_address(part)
+				if addr.version == 4 and not ipv4:
+					ipv4 = part
+				elif addr.version == 6 and not ipv6:
+					ipv6 = part
+			except Exception:
+				continue
+		# Prefer IPv4 for display
+		ip = ipv4 if ipv4 else (ipv6 if ipv6 else ip_raw)
 	# Try to determine the server port
 	try:
 		host_header = req.host  # e.g., "localhost:5000"
@@ -107,6 +122,7 @@ def log_http_request(req):
 	event = {
 		"timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
 		"ip": ip,
+		"ip_v6": ipv6 if ipv6 else (ip if ':' in ip else ''),
 		"port": port,
 		"protocol": "HTTP",
 		"event_type": "request",
