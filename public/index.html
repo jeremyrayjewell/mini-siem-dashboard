@@ -146,63 +146,31 @@
         const ipGeoCache = {};
 
         async function fetchGeo(ip) {
-            if (ipGeoCache[ip]) return ipGeoCache[ip];
-            try {
-                const resp = await fetch(`https://ip-api.com/json/${ip}?fields=status,country,lat,lon`);
-                const data = await resp.json();
-                if (data.status === "success") {
-                    ipGeoCache[ip] = {
-                        country: data.country,
-                        latitude: data.lat,
-                        longitude: data.lon
-                    };
-                    return ipGeoCache[ip];
-                }
-            } catch {}
-            ipGeoCache[ip] = null;
+            // No longer used. All geo lookups are done in the backend.
             return null;
         }
 
         async function buildGeoMarkers(events) {
-            // Always perform public IP geolocation lookups for all event IPs
+            // Use geoIPs from backend for map markers
             const markers = [];
-            const ipCounts = {};
-            for (const ev of events) {
-                ipCounts[ev.ip] = (ipCounts[ev.ip] || 0) + 1;
-            }
-            // Only unique IPs
-            const uniqueIPs = [...new Set(events.map(ev => ev.ip))];
-            // Fetch geo data for all unique IPs
-            const geoResults = {};
-            await Promise.all(uniqueIPs.map(async ip => {
-                geoResults[ip] = await fetchGeo(ip);
-                console.log(`Geo lookup for IP ${ip}:`, geoResults[ip]);
-            }));
-            for (const ev of events) {
-                const geo = geoResults[ev.ip];
-                let lat, lng, country;
-                if (geo && typeof geo.latitude === "number" && typeof geo.longitude === "number") {
-                    lat = geo.latitude;
-                    lng = geo.longitude;
-                    country = geo.country;
-                } else {
-                    // Place unknown IPs at (0,0) with a warning
-                    lat = 0;
-                    lng = 0;
-                    country = null;
-                }
-                const popup = `<strong>IP:</strong> ${ev.ip}<br>` +
-                    (country ? `<strong>Country:</strong> ${country}<br>` : "<span style='color:#e11d48'>Unknown location</span><br>") +
-                    `<strong>Protocol:</strong> ${ev.protocol}<br>` +
-                    `<strong>Events:</strong> ${ipCounts[ev.ip]}`;
-                markers.push({
-                    lat,
-                    lng,
-                    popup
+            if (window.latestGeoIPs && Array.isArray(window.latestGeoIPs)) {
+                window.latestGeoIPs.forEach(entry => {
+                    const ip = entry.ip;
+                    const lat = entry.lat;
+                    const lon = entry.lon;
+                    const country = entry.country;
+                    const count = entry.count;
+                    if (lat != null && lon != null) {
+                        const popup = `<strong>IP:</strong> ${ip}<br>` +
+                            (country ? `<strong>Country:</strong> ${country}<br>` : "<span style='color:#e11d48'>Unknown location</span><br>") +
+                            `<strong>Events:</strong> ${count}`;
+                        markers.push({
+                            lat,
+                            lng: lon,
+                            popup
+                        });
+                    }
                 });
-            }
-            if (markers.length === 0) {
-                console.warn('No valid geo data for any IPs:', uniqueIPs);
             }
             return markers;
         }
@@ -385,6 +353,9 @@
                     </tr>`;
                 });
                 document.querySelector('#recentEvents tbody').innerHTML = eventRows;
+
+                // Save geoIPs for map rendering
+                window.latestGeoIPs = data.geoIPs || [];
 
                 // Update analytics visuals
                 updateEventsOverTimeChart(data.recentEvents ?? []);

@@ -1,3 +1,53 @@
+import ipaddress
+import requests
+_geo_cache = {}
+
+def load_geo_cache():
+	global _geo_cache
+	if GEO_CACHE_FILE.exists():
+		try:
+			with GEO_CACHE_FILE.open("r") as f:
+				_geo_cache = json.load(f)
+		except Exception:
+			_geo_cache = {}
+	else:
+		_geo_cache = {}
+
+def save_geo_cache():
+	try:
+		with GEO_CACHE_FILE.open("w") as f:
+			json.dump(_geo_cache, f)
+	except Exception:
+		pass
+
+def is_public_ip(ip: str) -> bool:
+	try:
+		addr = ipaddress.ip_address(ip)
+		return not (addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local)
+	except ValueError:
+		return False
+
+def lookup_geo(ip: str):
+	if not is_public_ip(ip):
+		return None
+	if ip in _geo_cache:
+		return _geo_cache[ip]
+	try:
+		resp = requests.get(f"https://ipwho.is/{ip}", timeout=3)
+		data = resp.json()
+		if not data.get("success", False):
+			return None
+		geo = {
+			"ip": ip,
+			"country": data.get("country"),
+			"lat": data.get("latitude"),
+			"lon": data.get("longitude")
+		}
+		_geo_cache[ip] = geo
+		save_geo_cache()
+		return geo
+	except Exception:
+		return None
 import json
 from flask import Flask, jsonify, send_from_directory, request
 from datetime import datetime, timedelta
@@ -123,6 +173,18 @@ def api_stats():
 	top_ips = sorted([
 		{'ip': ip, 'count': count} for ip, count in ip_counts.items()
 	], key=lambda x: x['count'], reverse=True)[:5]
+	geo_ips = []
+	for entry in top_ips:
+		ip = entry["ip"]
+		geo = lookup_geo(ip)
+		if geo and geo.get("lat") is not None and geo.get("lon") is not None:
+			geo_ips.append({
+				"ip": ip,
+				"count": entry["count"],
+				"country": geo.get("country"),
+				"lat": geo.get("lat"),
+				"lon": geo.get("lon"),
+			})
 	port_counts = {}
 	for e in parsed_events:
 		port = e.get('port')
@@ -145,13 +207,16 @@ def api_stats():
 		'last24h': last24h_count,
 		'topIPs': top_ips,
 		'topPorts': top_ports,
-		'recentEvents': recent_events
+		'recentEvents': recent_events,
+		'geoIPs': geo_ips
 	})
 
 if __name__ == "__main__":
 	DATA_DIR.mkdir(exist_ok=True)
+	GEO_CACHE_FILE = DATA_DIR / "geo_cache.json"
 	if not EVENTS_FILE.exists():
 		with EVENTS_FILE.open('w') as f:
 			json.dump([], f)
+	load_geo_cache()
 	start_trap_listeners()
 	app.run(host="0.0.0.0", port=5000, debug=True)
