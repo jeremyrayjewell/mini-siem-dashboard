@@ -84,31 +84,36 @@ def lookup_geo(ip: str):
 
 def get_client_ip(req):
     """
-    Return best-guess client IP, preferring IPv4 over IPv6.
+    Return the original client IP for HTTP requests.
+    Prefer X-Forwarded-For, then Fly-Client-IP, then remote_addr.
     """
-    candidates = []
+    xff = req.headers.get("X-Forwarded-For", "")
+    if xff:
+        ip = xff.split(",")[0].strip()
+        if ip:
+            try:
+                ip_address(ip)
+                return ip
+            except ValueError:
+                pass
 
     fly_client_ip = req.headers.get("Fly-Client-IP", "")
     if fly_client_ip:
-        candidates.append(fly_client_ip.strip())
-
-    xff = req.headers.get("X-Forwarded-For", "")
-    if xff:
-        for part in xff.split(","):
-            candidates.append(part.strip())
-
-    if req.remote_addr:
-        candidates.append(req.remote_addr)
-
-    ipv4_candidates = [ip for ip in candidates if "." in ip]
-    ipv6_candidates = [ip for ip in candidates if ":" in ip]
-
-    for candidate in ipv4_candidates + ipv6_candidates:
+        ip = fly_client_ip.strip()
         try:
-            ip_address(candidate)
-            return candidate
+            ip_address(ip)
+            return ip
         except ValueError:
-            continue
+            pass
+
+    # Fallback to remote_addr
+    ip = req.remote_addr
+    if ip:
+        try:
+            ip_address(ip)
+            return ip
+        except ValueError:
+            pass
 
     return "unknown"
 
