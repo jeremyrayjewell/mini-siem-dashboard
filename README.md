@@ -2,8 +2,6 @@
 
 # [![Netlify Status](https://api.netlify.com/api/v1/badges/fdafd745-8454-424a-80df-87d9e43e92aa/deploy-status)](https://app.netlify.com/projects/mini-siem-dashboard/deploys)
 
-# Mini SIEM Dashboard
-
 🔴 Live demo: [https://mini-siem-dashboard.netlify.app/](https://mini-siem-dashboard.netlify.app/)  
 (Backend honeypot: [https://backend-weathered-voice-4887.fly.dev/](https://backend-weathered-voice-4887.fly.dev/))
 
