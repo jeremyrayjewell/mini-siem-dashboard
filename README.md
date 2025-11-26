@@ -46,12 +46,7 @@ This is designed for **home-lab / research / portfolio** use. It can safely be e
     - **Events by protocol** (Chart.js)
     - **Top IPs (table)**
     - **Top ports (table)**
-    - **Recent events** table with:
-      - synthesized, human-readable messages
-      - clear distinction between external and internal IPs
-  - Dark page background with light “cards” and teal accent color
-  - Responsive layout with cards in a grid on desktop and stacked on smaller screens
-  - Auto-refresh every few seconds for a “live” SIEM feel
+    - **Recent events** 
 
 ---
 
@@ -236,5 +231,5 @@ This project works well as a small internet-facing honeypot for a home lab or re
 
 ## Author
 
-Jeremy  
+Jeremy Ray Jewell  
 [GitHub](https://github.com/jeremyrayjewell) · [LinkedIn](https://www.linkedin.com/in/jeremyrayjewell)
