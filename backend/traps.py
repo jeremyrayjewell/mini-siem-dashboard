@@ -1,197 +1,205 @@
-import re
 import socket
 import threading
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from ipaddress import ip_address
 
+# Paths and limits shared with app.py
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-EVENTS_FILE = DATA_DIR / "events.json"
-EVENTS_LOCK = threading.Lock()
-MAX_EVENTS = 10000
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+EVENTS_FILE = DATA_DIR / "events.json"
+MAX_EVENTS = 10_000
+EVENTS_LOCK = threading.Lock()
+
+# Simple text banners per protocol
 BANNERS = {
-    5022: b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4\r\n",
-    5021: b"220 (Fake FTP Service)\r\n",
-    53389: b"RDP Protocol Negotiation Failure\r\n",
-    53306: b"5.7.26 MySQL Community Server (GPL)\r\n",
-    56379: b"+PONG\r\n",
-    57017: b"MongoDB shell version v4.4.0\r\n",
-    21: b"220 (Fake FTP Service)\r\n",
-    22: b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4\r\n",
-    3389: b"RDP Protocol Negotiation Failure\r\n",
-    3306: b"5.7.26 MySQL Community Server (GPL)\r\n",
-    6379: b"+PONG\r\n",
-    27017: b"MongoDB shell version v4.4.0\r\n"
+    "SSH": b"SSH-2.0-OpenSSH_8.9p1 FlyMiniSIEM\r\n",
+    "FTP": b"220 FlyMiniSIEM FTP server ready\r\n",
+    "RDP": b"\x03\x00\x00\x13\x0e\xd0\x00\x00\x12\x34\x00\x02\x08\x00\x02\x00\x00\x00",  # random junk
+    "MySQL": b"\x0aFlyMiniSIEM\0\0\0",  # fake handshake prefix
+    "Redis": b"-ERR unknown command 'HELLO' from FlyMiniSIEM\r\n",
+    "MongoDB": b"{'ok':0,'errmsg':'Fake Mongo from FlyMiniSIEM'}\r\n",
 }
 
-SERVICES = [
-    {'port': 5022, 'protocol': 'SSH'},
-    {'port': 22, 'protocol': 'SSH'},
-    {'port': 5021, 'protocol': 'FTP'},
-    {'port': 21, 'protocol': 'FTP'},
-    {'port': 53389, 'protocol': 'RDP'},
-    {'port': 3389, 'protocol': 'RDP'},
-    {'port': 53306, 'protocol': 'MySQL'},
-    {'port': 3306, 'protocol': 'MySQL'},
-    {'port': 56379, 'protocol': 'Redis'},
-    {'port': 6379, 'protocol': 'Redis'},
-    {'port': 57017, 'protocol': 'MongoDB'},
-    {'port': 27017, 'protocol': 'MongoDB'}
-]
 
-def prefer_ipv4(ip_list):
-    for ip in ip_list:
-        if '.' in ip:  # Check for IPv4
-            try:
-                ip_address(ip)
-                return ip
-            except ValueError:
-                continue
-    for ip in ip_list:
-        if ':' in ip:
-            try:
-                ip_address(ip)
-                return ip
-            except ValueError:
-                continue
-    return "unknown"
+def _now_utc_iso() -> str:
+    """Return a timezone-aware ISO 8601 timestamp with trailing Z."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-def prefer_ipv4_only(ip_list):
-    for ip in ip_list:
-        if "." in ip:  # Check for IPv4
-            return ip
-    return "unknown"
 
-def get_client_from_proxy_or_addr(conn, addr):
+def _load_events():
+    if not EVENTS_FILE.exists():
+        return []
     try:
-        conn.settimeout(0.5)
-        peek = conn.recv(16, socket.MSG_PEEK)
-        if not peek.startswith(b"PROXY "):
-            conn.settimeout(None)
-            ipv4 = prefer_ipv4([addr[0]])
-            ipv6 = addr[0] if ":" in addr[0] else None
-            print(f"[DEBUG] Connection address resolved: IPv4={ipv4}, IPv6={ipv6}")
-            return ipv4, ipv6, addr[1]
-        header = b""
-        while not header.endswith(b"\r\n"):
-            chunk = conn.recv(1)
-            if not chunk:
-                break
-            header += chunk
-        conn.settimeout(None)
-        m = re.match(rb"^PROXY\s+TCP[46]\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\r\n$", header)
-        if m:
-            ipv4 = prefer_ipv4([m.group(1).decode()])
-            ipv6 = m.group(1).decode() if ":" in m.group(1).decode() else None
-            print(f"[DEBUG] PROXY header resolved: IPv4={ipv4}, IPv6={ipv6}")
-            return ipv4, ipv6, int(m.group(3))
-    except Exception as e:
-        print(f"[PROXY ERROR] {e}")
-    conn.settimeout(None)
-    ipv4 = prefer_ipv4([addr[0]])
-    ipv6 = addr[0] if ":" in addr[0] else None
-    print(f"[DEBUG] Fallback address resolved: IPv4={ipv4}, IPv6={ipv6}")
-    return ipv4, ipv6, addr[1]
-
-def append_event(event):
-    with EVENTS_LOCK:
+        with EVENTS_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        # Corrupt file – start fresh but keep the bad copy around next to it
+        backup = EVENTS_FILE.with_suffix(".corrupt.json")
         try:
-            if not EVENTS_FILE.exists():
-                events = []
-            else:
-                with EVENTS_FILE.open('r') as f:
-                    events = json.load(f)
-        except json.JSONDecodeError:
-            print("[ERROR] Corrupted events.json file. Resetting log.")
-            events = []
-        except Exception as e:
-            print(f"[ERROR] Failed to read events: {e}")
-            events = []
+            EVENTS_FILE.rename(backup)
+        except Exception:
+            pass
+        return []
 
-        if not isinstance(event, dict) or not event.get("timestamp") or not event.get("protocol"):
-            print(f"[WARNING] Skipping invalid event: {event}")
-            return
 
+def _save_events(events):
+    with EVENTS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(events, f, indent=2)
+
+
+def append_event(event: dict) -> None:
+    """
+    Append a single event to EVENTS_FILE with rotation and locking.
+    Shared by TCP traps and HTTP logging in app.py.
+    """
+    event.setdefault("timestamp", _now_utc_iso())
+
+    with EVENTS_LOCK:
+        events = _load_events()
         events.append(event)
         if len(events) > MAX_EVENTS:
+            # Keep only the newest MAX_EVENTS
             events = events[-MAX_EVENTS:]
+        _save_events(events)
 
-        try:
-            with EVENTS_FILE.open('w') as f:
-                json.dump(events, f)
-        except Exception as e:
-            print(f"[ERROR] Failed to write events: {e}")
 
-def handle_connection(conn, addr, protocol, listen_port):
-    ipv4, ipv6, client_port = get_client_from_proxy_or_addr(conn, addr)
-    ip = ipv4 if ipv4 else "unknown"
+def _parse_proxy_header(conn, fallback_ip: str, fallback_src_port: int, listener_port: int):
+    """
+    If Fly proxy_proto is enabled, the first line on the connection
+    will be a PROXY header like:
 
-    print(f"[DEBUG] New {protocol} connection: ip={ip}, ipv6={ipv6}, client_port={client_port}")
+      PROXY TCP4 198.51.100.23 10.0.0.1 44321 22\r\n
+      PROXY TCP6 2a0c:5700::1 2a0c:5700::2 54321 22\r\n
 
-    event = {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "ip": ip,
-        "ipv6": ipv6,
-        "port": listen_port,       # DESTINATION (service) port, e.g., 21, 22, 3389
-        "src_port": client_port,   # SOURCE (attacker) ephemeral port
-        "protocol": protocol,
-        "event_type": "connection",  # align with HTTP events from app.py
-        "message": f"Connection from {addr[0]}:{client_port} via {protocol}",
-        "user_agent": None,           # schema compatibility with HTTP events
-        "banner_sent": False,         # schema compatibility with HTTP events
-    }
+    We sniff and consume that line (if present) and return
+    (client_ip, client_src_port, dest_port).
 
-    if not event["ip"] or not event["port"]:
-        print(f"[WARNING] Skipping invalid event: {event}")
-        conn.close()
-        return
-
-    append_event(event)
-
+    If there is no PROXY header or anything goes wrong, we fall back
+    to (fallback_ip, fallback_src_port, listener_port).
+    """
     try:
-        print(f"[INFO] {event['message']}")
-    except Exception as e:
-        print(f"[ERROR] Failed to log event: {e}")
+        conn.settimeout(1.0)
+        peek = conn.recv(108, socket.MSG_PEEK)
+        if not peek:
+            return fallback_ip, fallback_src_port, listener_port
+
+        line, _, _ = peek.partition(b"\r\n")
+        if not line.startswith(b"PROXY "):
+            return fallback_ip, fallback_src_port, listener_port
+
+        # Consume the header now that we know it's there
+        to_consume = len(line) + 2  # +2 for \r\n
+        _ = conn.recv(to_consume)
+
+        parts = line.decode("ascii", errors="ignore").split()
+        # PROXY TCP4 src_ip dst_ip src_port dst_port
+        if len(parts) >= 6:
+            src_ip = parts[2]
+            try:
+                src_port = int(parts[4])
+            except ValueError:
+                src_port = fallback_src_port
+            try:
+                dest_port = int(parts[5])
+            except ValueError:
+                dest_port = listener_port
+            return src_ip, src_port, dest_port
+
+        return fallback_ip, fallback_src_port, listener_port
+    except Exception:
+        return fallback_ip, fallback_src_port, listener_port
     finally:
-        conn.close()
+        try:
+            conn.settimeout(None)
+        except Exception:
+            pass
 
-def listener(port, protocol):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+def _listener_thread(listener_port: int, protocol: str):
+    banner = BANNERS.get(protocol)
     try:
-        s.bind(('0.0.0.0', port))
-        print(f"[DEBUG] Listener started for {protocol} on port {port}")
-    except Exception as e:
-        print(f"[TRAP ERROR] Failed to bind {protocol} on port {port}: {e}")
-        s.close()
+        # IPv6 dual-stack, handles IPv4 as well on most Linux distros
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # :: means "all addresses" (both v4 + v6 due to v6only=0 default)
+        sock.bind(("::", listener_port))
+        sock.listen(50)
+    except OSError as e:
+        print(f"[TRAP ERROR] Failed to bind {protocol} on port {listener_port}: {e}", flush=True)
         return
 
-    s.listen(100)
+    print(f"[TRAP DEBUG] Listener started for {protocol} on port {listener_port}", flush=True)
+
     while True:
         try:
-            conn, addr = s.accept()
-            print(f"[DEBUG] Connection accepted on {protocol} port {port} from {addr}")
-            threading.Thread(
-                target=handle_connection,
-                args=(conn, addr, protocol, port),  # pass listen_port in
-                daemon=True,
-            ).start()
+            conn, addr = sock.accept()
         except Exception as e:
-            print(f"[LISTENER ERROR] {e}")
+            print(f"[TRAP ERROR] accept() failed on {protocol} port {listener_port}: {e}", flush=True)
             continue
 
-def start_trap_listeners():
-    DATA_DIR.mkdir(exist_ok=True)
-    if not EVENTS_FILE.exists():
-        with EVENTS_FILE.open('w') as f:
-            json.dump([], f)
-    for svc in SERVICES:
+        # addr for AF_INET6: (ip, port, flowinfo, scopeid)
+        fallback_ip = addr[0]
+        fallback_src_port = addr[1]
+        client_ip, client_src_port, dest_port = _parse_proxy_header(
+            conn, fallback_ip, fallback_src_port, listener_port
+        )
+
+        print(
+            f"[TRAP DEBUG] ACCEPTED {protocol} connection from {client_ip}:{client_src_port} "
+            f"(external dest port {dest_port}, listener port {listener_port})",
+            flush=True,
+        )
+
+        event = {
+            "timestamp": _now_utc_iso(),
+            "event_type": "connection",
+            "protocol": protocol,
+            # Use the *external* destination port from PROXY header when available
+            "port": dest_port,
+            "ip": client_ip,
+            "raw_ip": client_ip,
+            "src_port": client_src_port,
+            "banner_sent": bool(banner),
+            "user_agent": None,
+            "message": f"Connection from {client_ip}:{client_src_port} via {protocol}",
+        }
+        append_event(event)
+
         try:
-            print(f"[DEBUG] Starting listener for {svc['protocol']} on port {svc['port']}")
-            t = threading.Thread(target=listener, args=(svc['port'], svc['protocol']), daemon=True)
-            t.start()
+            if banner:
+                conn.sendall(banner)
         except Exception as e:
-            print(f"[ERROR] Failed to start listener for {svc['protocol']} on port {svc['port']}: {e}")
+            print(f"[TRAP ERROR] Failed to send banner on {protocol} port {listener_port}: {e}", flush=True)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def start_trap_listeners():
+    """
+    Spin up background threads for each honeypot TCP port.
+    We only use high ports to avoid conflicts with Fly's internal SSH, etc.
+    The HTTP /admin route is handled in app.py and does not appear here.
+    """
+    listeners = [
+        (5022, "SSH"),
+        (5021, "FTP"),
+        (53389, "RDP"),
+        (53306, "MySQL"),
+        (56379, "Redis"),
+        (57017, "MongoDB"),
+    ]
+
+    for port, proto in listeners:
+        t = threading.Thread(
+            target=_listener_thread,
+            args=(port, proto),
+            daemon=True,
+        )
+        t.start()
+        print(f"[TRAP DEBUG] Starting listener for {proto} on port {port}", flush=True)

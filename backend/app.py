@@ -1,308 +1,306 @@
-from ipaddress import ip_address
 import json
-from flask import Flask, jsonify, send_from_directory, request
-from flask_cors import CORS
-from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from traps import start_trap_listeners, EVENTS_FILE, EVENTS_LOCK, MAX_EVENTS
+
 import ipaddress
 import requests
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 
-# Directories
+from traps import (
+    EVENTS_FILE,
+    EVENTS_LOCK,
+    MAX_EVENTS,
+    append_event,
+    start_trap_listeners,
+)
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-PUBLIC_DIR = BASE_DIR.parent / "public"
 
-# Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
-
-# Constants for geolocation
-GEO_CACHE_FILE = DATA_DIR / "geo_cache.json"
-_geo_cache = {}
+CORS(app)
 
 
-def load_geo_cache():
-    global _geo_cache
-    if GEO_CACHE_FILE.exists():
-        try:
-            with GEO_CACHE_FILE.open("r") as f:
-                _geo_cache = json.load(f)
-        except Exception:
-            _geo_cache = {}
-    else:
-        _geo_cache = {}
+# ---------- Event loading helpers ----------
 
-
-def save_geo_cache():
+def _load_events():
+    if not EVENTS_FILE.exists():
+        return []
     try:
-        with GEO_CACHE_FILE.open("w") as f:
-            json.dump(_geo_cache, f)
+        with EVENTS_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
-        pass
+        return []
 
 
-def is_public_ip(ip: str) -> bool:
+def _parse_timestamp(ts: str):
+    if not ts:
+        return None
+    try:
+        # Handle ...Z or offset formats
+        if ts.endswith("Z"):
+            ts = ts.replace("Z", "+00:00")
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+
+def _is_public_ip(ip: str) -> bool:
+    """
+    Return True if the IP is globally routable.
+    Works for both IPv4 and IPv6.
+    """
     try:
         addr = ipaddress.ip_address(ip)
-        return not (addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local)
+        return addr.is_global
     except ValueError:
         return False
 
 
-def lookup_geo(ip: str):
+def _lookup_geo(ip: str):
     """
-    Return {ip, country, lat, lon} for public IPs using ipwho.is, or None.
-    Uses a local JSON cache to avoid hitting the API repeatedly.
+    Geo-lookup using ipwho.is which supports IPv4 and IPv6.
+    Returns None on any failure.
     """
-    if not is_public_ip(ip):
-        return None
-
-    if ip in _geo_cache:
-        return _geo_cache[ip]
-
     try:
-        resp = requests.get(f"https://ipwho.is/{ip}", timeout=3)
+        resp = requests.get(
+            f"https://ipwho.is/{ip}",
+            timeout=3,
+            params={"output": "json"},
+        )
         data = resp.json()
-        if not data.get("success", False):
+        if not data.get("success", True):
             return None
 
-        info = {
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        if lat is None or lon is None:
+            return None
+
+        return {
             "ip": ip,
+            "lat": float(lat),
+            "lng": float(lon),
+            "city": data.get("city"),
+            "region": data.get("region"),
             "country": data.get("country"),
-            "lat": data.get("latitude"),
-            "lon": data.get("longitude"),
         }
-        _geo_cache[ip] = info
-        save_geo_cache()
-        return info
     except Exception:
         return None
 
 
-# ---------- IP selection (prefer IPv4) ----------
-
-def get_client_ip(req):
+def _build_geo_points(events):
     """
-    Return the original client IP for HTTP requests.
+    Build a list of geoPoints for the dashboard map from recent events.
+    Each item: { ip, lat, lng, count, city, region, country }
+    """
+    ip_counts = Counter()
+    for e in events:
+        raw_ip = e.get("raw_ip") or str(e.get("ip") or "").split()[0]
+        if not raw_ip or not _is_public_ip(raw_ip):
+            continue
+        ip_counts[raw_ip] += 1
+
+    geo_points = []
+    for ip, count in ip_counts.items():
+        info = _lookup_geo(ip)
+        if not info:
+            continue
+        info["count"] = count
+        geo_points.append(info)
+
+    return geo_points
+
+
+# ---------- HTTP honeypot logging ----------
+
+def _get_client_ip(req):
+    """
     Prefer X-Forwarded-For, then Fly-Client-IP, then remote_addr.
+    Returns (raw_ip, label_ip) where label_ip may include ' (internal)'.
     """
-    xff = req.headers.get("X-Forwarded-For", "")
-    if xff:
-        ip = xff.split(",")[0].strip()
-        if ip:
-            try:
-                ip_address(ip)
-                return ip
-            except ValueError:
-                pass
-
-    fly_client_ip = req.headers.get("Fly-Client-IP", "")
-    if fly_client_ip:
-        ip = fly_client_ip.strip()
-        try:
-            ip_address(ip)
-            return ip
-        except ValueError:
-            pass
-
-    # Fallback to remote_addr
-    ip = req.remote_addr
-    if ip:
-        try:
-            ip_address(ip)
-            return ip
-        except ValueError:
-            pass
-
-    return "unknown"
-
-
-# ---------- HTTP logging ----------
-
-def log_http_request(req):
-    ip = get_client_ip(req)
-
-    fly_client_ip = req.headers.get("Fly-Client-IP", "")
-    xff = req.headers.get("X-Forwarded-For", "")
+    xff = (req.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    fly_ip = req.headers.get("Fly-Client-IP")
     remote = req.remote_addr
 
+    ip = xff or fly_ip or remote or "unknown"
+
+    label = ip
     try:
-        host_header = req.host
-        port = int(host_header.rsplit(":", 1)[1]) if ":" in host_header else int(req.environ.get("SERVER_PORT", 0))
-    except (ValueError, TypeError):
-        port = 0
+        addr = ipaddress.ip_address(ip)
+        if not addr.is_global:
+            label = f"{ip} (internal)"
+    except ValueError:
+        # not a plain IP string; leave as-is
+        pass
 
-    method = req.method
-    path = req.path
-    src_port = req.environ.get("REMOTE_PORT", 0)
-    user_agent = req.headers.get("User-Agent", "")
+    return ip, label
 
-    from traps import append_event
+
+def log_http_request(req):
+    """
+    Append a single HTTP honeypot event (e.g. /admin) to events.json.
+    This uses the same schema as TCP connection events.
+    """
+    raw_ip, label_ip = _get_client_ip(req)
+
+    # Dest & src ports (if available)
+    try:
+        dest_port = int(req.environ.get("SERVER_PORT") or 8080)
+    except Exception:
+        dest_port = 8080
+
+    try:
+        src_port = int(req.environ.get("REMOTE_PORT") or 0)
+    except Exception:
+        src_port = None
 
     event = {
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "ip": ip,
-        "port": port,
-        "protocol": "HTTP",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "event_type": "request",
-        "method": method,
-        "path": path,
+        "protocol": "HTTP",
+        "port": dest_port,
+        "ip": label_ip,
+        "raw_ip": raw_ip,
         "src_port": src_port,
-        "user_agent": user_agent,
-        "message": (
-            f"HTTP {method} {path} from {ip} "
-            f"[fly='{fly_client_ip}' xff='{xff}' remote='{remote}']"
-        ),
+        "banner_sent": False,
+        "user_agent": req.headers.get("User-Agent"),
+        "method": req.method,
+        "path": req.path,
+        "message": f"HTTP {req.method} {req.path} from {label_ip}",
     }
-
-    if ip == "unknown" or not port:
-        print(f"[WARNING] Skipping event due to missing critical data: {event}")
-        return
-
     append_event(event)
 
 
-@app.before_request
-def before_request_logging():
-    # Skip internal dashboard noise. If you ALSO want "/" logged, remove that check.
-    if request.path in ("/api/stats", "/favicon.ico"):
-        return
-    if request.path == "/":
-        return
+# ---------- API routes ----------
 
-    if not hasattr(request, "_logged"):
-        log_http_request(request)
-        request._logged = True
-
-
-# ---------- Routes ----------
-
-@app.route("/")
-def index():
-    index_path = PUBLIC_DIR / "index.html"
-    if index_path.exists():
-        return send_from_directory(str(PUBLIC_DIR), "index.html")
-
-    # Fallback fake portal
-    return """
-<html>
-<head><title>Welcome</title></head>
-<body>
-<h2>Welcome to Secure Portal</h2>
-<p>Please <a href='/login'>login</a>.</p>
-</body>
-</html>
-"""
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        return "Invalid credentials", 401
-    return """
-<html>
-<head><title>Login</title></head>
-<body>
-<h2>Login</h2>
-<form method='post'>
-Username: <input name='username'><br>
-</form>
-<p>Access restricted. Please login.</p>
-</body>
-</html>
-"""
-
-
-# Update api_stats to include geoIPs
-@app.route("/api/stats")
+@app.route("/api/stats", methods=["GET"])
 def api_stats():
-    try:
-        with EVENTS_FILE.open("r") as f:
-            events = json.load(f)
-    except Exception as e:
-        print(f"[ERROR] Failed to read events file: {e}")
-        events = []
-
-    # Enrich with datetime for sorting and 24h filtering
-    for e in events:
-        try:
-            e["_dt"] = datetime.strptime(e["timestamp"], "%Y-%m-%dT%H:%M:%SZ")
-        except Exception as e:
-            print(f"[WARNING] Failed to parse timestamp: {e}")
-            e["_dt"] = datetime.utcnow()
+    """
+    Aggregate stats for the dashboard:
+      - totalEvents
+      - last24Hours
+      - eventsOverTime
+      - topIPs
+      - topPorts
+      - eventsByProtocol
+      - recentEvents
+      - geoPoints
+    """
+    with EVENTS_LOCK:
+        events = _load_events()
 
     total_events = len(events)
-    last_24h = datetime.utcnow() - timedelta(hours=24)
-    last24h_count = sum(1 for e in events if e["_dt"] >= last_24h)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=24)
 
-    ip_counts = {}
+    # Filter for last 24h and also parse timestamps
+    parsed_events = []
+    last24h_count = 0
     for e in events:
-        ip = e.get("ip")
-        if ip:
-            ip_counts[ip] = ip_counts.get(ip, 0) + 1
-    top_ips = sorted(
-        ({"ip": ip, "count": count} for ip, count in ip_counts.items()),
-        key=lambda x: x["count"],
-        reverse=True,
-    )[:5]
+        ts = _parse_timestamp(e.get("timestamp"))
+        if ts is None:
+            continue
+        parsed_events.append((ts, e))
+        if ts >= cutoff:
+            last24h_count += 1
 
-    port_counts = {}
-    for e in events:
+    # Recent events: newest first, limited to 100
+    parsed_events.sort(key=lambda pair: pair[0], reverse=True)
+    recent_events = [e for _, e in parsed_events[:100]]
+
+    # Events over time (by date)
+    by_date = defaultdict(int)
+    for ts, _e in parsed_events:
+        by_date[ts.date().isoformat()] += 1
+    events_over_time = [
+        {"date": d, "count": by_date[d]} for d in sorted(by_date.keys())
+    ]
+
+    # Top IPs (by label)
+    ip_counter = Counter()
+    for _ts, e in parsed_events:
+        ip_counter[e.get("ip", "unknown")] += 1
+    top_ips = [
+        {"ip": ip, "count": count}
+        for ip, count in ip_counter.most_common(10)
+    ]
+
+    # Top ports
+    port_counter = Counter()
+    for _ts, e in parsed_events:
         port = e.get("port")
-        if port:
-            port_counts[port] = port_counts.get(port, 0) + 1
-    top_ports = sorted(
-        ({"port": port, "count": count} for port, count in port_counts.items()),
-        key=lambda x: x["count"],
-        reverse=True,
-    )[:5]
+        if port is None:
+            continue
+        port_counter[str(port)] += 1
+    top_ports = [
+        {"port": port, "count": count}
+        for port, count in port_counter.most_common(10)
+    ]
 
-    recent_events = sorted(events, key=lambda e: e["_dt"], reverse=True)[:50]
-    for e in recent_events:
-        e.pop("_dt", None)
+    # Events by protocol
+    proto_counter = Counter()
+    for _ts, e in parsed_events:
+        proto_counter[e.get("protocol", "UNKNOWN")] += 1
+    events_by_protocol = [
+        {"protocol": proto, "count": count}
+        for proto, count in proto_counter.most_common()
+    ]
 
-    # Add geoIPs
-    geo_ips = []
-    for entry in top_ips:
-        ip = entry["ip"]
-        try:
-            geo = lookup_geo(ip)
-            if geo and geo.get("lat") is not None and geo.get("lon") is not None:
-                geo_ips.append(
-                    {
-                        "ip": ip,
-                        "count": entry["count"],
-                        "country": geo.get("country"),
-                        "lat": geo.get("lat"),
-                        "lon": geo.get("lon"),
-                    }
-                )
-        except Exception as e:
-            print(f"[WARNING] Geo lookup failed for IP {ip}: {e}")
+    # Geo points for map (IPv4 + IPv6)
+    geo_points = _build_geo_points([e for _ts, e in parsed_events])
 
     return jsonify(
         {
             "totalEvents": total_events,
-            "last24h": last24h_count,
+            "last24Hours": last24h_count,
+            "eventsOverTime": events_over_time,
             "topIPs": top_ips,
             "topPorts": top_ports,
+            "eventsByProtocol": events_by_protocol,
             "recentEvents": recent_events,
-            "geoIPs": geo_ips,
+            "geoPoints": geo_points,
+            "maxEvents": MAX_EVENTS,
         }
     )
 
 
+@app.route("/admin", methods=["GET", "POST", "HEAD", "OPTIONS"])
+def admin_honeypot():
+    """
+    Fake /admin endpoint: always returns 404 but logs the request
+    as a honeypot event.
+    """
+    log_http_request(request)
+    # Deliberately mimic a generic 404 page (like Werkzeug's)
+    return (
+        "<!doctype html><html lang=en><title>404 Not Found</title>"
+        "<h1>Not Found</h1>"
+        "<p>The requested URL was not found on the server. "
+        "If you entered the URL manually please check your spelling and try again.</p>",
+        404,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
+@app.route("/")
+def health_root():
+    return jsonify({"status": "ok", "message": "Mini SIEM backend is running."})
+
+
 # ---------- Entrypoint ----------
 
-# Ensure the app listens on 0.0.0.0
+# Ensure data dir and file exist
+DATA_DIR.mkdir(exist_ok=True)
+if not EVENTS_FILE.exists():
+    with EVENTS_FILE.open("w", encoding="utf-8") as f:
+        json.dump([], f)
+
+# Start TCP honeypot listeners once when the module is imported / app starts
+start_trap_listeners()
+
 if __name__ == "__main__":
-    DATA_DIR.mkdir(exist_ok=True)
-    if not EVENTS_FILE.exists():
-        with EVENTS_FILE.open('w') as f:
-            json.dump([], f)
-    load_geo_cache()
-    start_trap_listeners()
-    import os
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Local dev runner
+    app.run(host="0.0.0.0", port=8080, debug=False)

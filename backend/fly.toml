@@ -1,84 +1,73 @@
 app = "backend-weathered-voice-4887"
 
-[[services]]
-  internal_port = 21
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 21, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+[env]
+  PYTHONUNBUFFERED = "1"
 
-[[services]]
-  internal_port = 22
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 22, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
-[[services]]
-  internal_port = 3389
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 3389, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
-[[services]]
-  internal_port = 3306
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 3306, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
-[[services]]
-  internal_port = 6379
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 6379, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
-[[services]]
-  internal_port = 27017
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 27017, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
-[[services]]
-  internal_port = 5021
-  protocol = "tcp"
-  processes = ["app"]
-  ports = [{ port = 5021, handlers = ["proxy_proto"], address = "0.0.0.0" }]
-
+# --- SSH honeypot (external 5022 -> internal 5022) ---
 [[services]]
   internal_port = 5022
   protocol = "tcp"
   processes = ["app"]
-  ports = [{ port = 5022, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+  ports = [
+    { port = 5022, address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
 
+# --- FTP honeypot (external 5021 -> internal 5021) ---
+[[services]]
+  internal_port = 5021
+  protocol = "tcp"
+  processes = ["app"]
+  ports = [
+    { port = 5021, address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
+
+# --- RDP honeypot (external 53389 -> internal 53389) ---
 [[services]]
   internal_port = 53389
   protocol = "tcp"
   processes = ["app"]
-  ports = [{ port = 53389, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+  ports = [
+    { port = 53389, address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
 
+# --- MySQL honeypot (external 53306 and 3306 -> internal 53306) ---
 [[services]]
   internal_port = 53306
   protocol = "tcp"
   processes = ["app"]
-  ports = [{ port = 53306, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+  ports = [
+    { port = 53306, address = "0.0.0.0", handlers = ["proxy_proto"] },
+    { port = 3306,  address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
 
+# --- Redis honeypot (external 56379 and 6379 -> internal 56379) ---
 [[services]]
   internal_port = 56379
   protocol = "tcp"
   processes = ["app"]
-  ports = [{ port = 56379, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+  ports = [
+    { port = 56379, address = "0.0.0.0", handlers = ["proxy_proto"] },
+    { port = 6379,  address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
 
+# --- MongoDB honeypot (external 57017 and 27017 -> internal 57017) ---
 [[services]]
   internal_port = 57017
   protocol = "tcp"
   processes = ["app"]
-  ports = [{ port = 57017, handlers = ["proxy_proto"], address = "0.0.0.0" }]
+  ports = [
+    { port = 57017, address = "0.0.0.0", handlers = ["proxy_proto"] },
+    { port = 27017, address = "0.0.0.0", handlers = ["proxy_proto"] }
+  ]
 
+# --- HTTP / Flask API on 8080 (for /api/stats and /admin) ---
 [[services]]
   internal_port = 8080
   protocol = "tcp"
   processes = ["app"]
   ports = [
-    { port = 80, handlers = ["http"], address = "0.0.0.0" },
-    { port = 443, handlers = ["tls", "http"], address = "0.0.0.0" }
+    { port = 80,  address = "0.0.0.0", handlers = ["http"] },
+    { port = 443, address = "0.0.0.0", handlers = ["tls", "http"] }
   ]
 
 [[checks]]
@@ -91,6 +80,6 @@ app = "backend-weathered-voice-4887"
   path = "/api/stats"
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = "1gb"
+  cpu_kind = "shared"
   cpus = 1
