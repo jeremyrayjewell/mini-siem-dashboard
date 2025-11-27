@@ -1,306 +1,329 @@
-import json
-from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+// === CONFIG: point frontend to Fly backend ===
+const API_BASE = 'https://backend-weathered-voice-4887.fly.dev';
 
-import ipaddress
-import requests
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+// Chart.js chart objects
+let eventsOverTimeChart, topIPsChart, protocolChart;
+let geoMap, geoMarkers = [];
 
-from traps import (
-    EVENTS_FILE,
-    EVENTS_LOCK,
-    MAX_EVENTS,
-    append_event,
-    start_trap_listeners,
-)
+// Simple in-memory cache for IP geolocation (not used now, kept for future)
+const ipGeoCache = {};
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+async function fetchGeo(ip) {
+    // No longer used. All geo lookups are done in the backend.
+    return null;
+}
 
-app = Flask(__name__)
-CORS(app)
+// ---------- Geo / map helpers ----------
 
+async function buildGeoMarkers() {
+    // Use geoPoints/geoIPs from backend for map markers
+    const markers = [];
+    if (window.latestGeoIPs && Array.isArray(window.latestGeoIPs)) {
+        window.latestGeoIPs.forEach(entry => {
+            const ip = entry.ip;
+            // Be tolerant of different backend key names
+            const lat =
+                entry.lat ??
+                entry.latitude ??
+                null;
+            const lng =
+                entry.lng ??
+                entry.lon ??
+                entry.longitude ??
+                null;
+            const country = entry.country;
+            const count = entry.count;
 
-# ---------- Event loading helpers ----------
-
-def _load_events():
-    if not EVENTS_FILE.exists():
-        return []
-    try:
-        with EVENTS_FILE.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-
-def _parse_timestamp(ts: str):
-    if not ts:
-        return None
-    try:
-        # Handle ...Z or offset formats
-        if ts.endswith("Z"):
-            ts = ts.replace("Z", "+00:00")
-        return datetime.fromisoformat(ts)
-    except Exception:
-        return None
-
-
-def _is_public_ip(ip: str) -> bool:
-    """
-    Return True if the IP is globally routable.
-    Works for both IPv4 and IPv6.
-    """
-    try:
-        addr = ipaddress.ip_address(ip)
-        return addr.is_global
-    except ValueError:
-        return False
-
-
-def _lookup_geo(ip: str):
-    """
-    Geo-lookup using ipwho.is which supports IPv4 and IPv6.
-    Returns None on any failure.
-    """
-    try:
-        resp = requests.get(
-            f"https://ipwho.is/{ip}",
-            timeout=3,
-            params={"output": "json"},
-        )
-        data = resp.json()
-        if not data.get("success", True):
-            return None
-
-        lat = data.get("latitude")
-        lon = data.get("longitude")
-        if lat is None or lon is None:
-            return None
-
-        return {
-            "ip": ip,
-            "lat": float(lat),
-            "lng": float(lon),
-            "city": data.get("city"),
-            "region": data.get("region"),
-            "country": data.get("country"),
-        }
-    except Exception:
-        return None
-
-
-def _build_geo_points(events):
-    """
-    Build a list of geoPoints for the dashboard map from recent events.
-    Each item: { ip, lat, lng, count, city, region, country }
-    """
-    ip_counts = Counter()
-    for e in events:
-        raw_ip = e.get("raw_ip") or str(e.get("ip") or "").split()[0]
-        if not raw_ip or not _is_public_ip(raw_ip):
-            continue
-        ip_counts[raw_ip] += 1
-
-    geo_points = []
-    for ip, count in ip_counts.items():
-        info = _lookup_geo(ip)
-        if not info:
-            continue
-        info["count"] = count
-        geo_points.append(info)
-
-    return geo_points
-
-
-# ---------- HTTP honeypot logging ----------
-
-def _get_client_ip(req):
-    """
-    Prefer X-Forwarded-For, then Fly-Client-IP, then remote_addr.
-    Returns (raw_ip, label_ip) where label_ip may include ' (internal)'.
-    """
-    xff = (req.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-    fly_ip = req.headers.get("Fly-Client-IP")
-    remote = req.remote_addr
-
-    ip = xff or fly_ip or remote or "unknown"
-
-    label = ip
-    try:
-        addr = ipaddress.ip_address(ip)
-        if not addr.is_global:
-            label = f"{ip} (internal)"
-    except ValueError:
-        # not a plain IP string; leave as-is
-        pass
-
-    return ip, label
-
-
-def log_http_request(req):
-    """
-    Append a single HTTP honeypot event (e.g. /admin) to events.json.
-    This uses the same schema as TCP connection events.
-    """
-    raw_ip, label_ip = _get_client_ip(req)
-
-    # Dest & src ports (if available)
-    try:
-        dest_port = int(req.environ.get("SERVER_PORT") or 8080)
-    except Exception:
-        dest_port = 8080
-
-    try:
-        src_port = int(req.environ.get("REMOTE_PORT") or 0)
-    except Exception:
-        src_port = None
-
-    event = {
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "event_type": "request",
-        "protocol": "HTTP",
-        "port": dest_port,
-        "ip": label_ip,
-        "raw_ip": raw_ip,
-        "src_port": src_port,
-        "banner_sent": False,
-        "user_agent": req.headers.get("User-Agent"),
-        "method": req.method,
-        "path": req.path,
-        "message": f"HTTP {req.method} {req.path} from {label_ip}",
+            if (lat != null && lng != null) {
+                const popup = `<strong>IP:</strong> ${ip}<br>` +
+                    (country
+                        ? `<strong>Country:</strong> ${country}<br>`
+                        : "<span style='color:#e11d48'>Unknown location</span><br>") +
+                    `<strong>Events:</strong> ${count}`;
+                markers.push({ lat, lng, popup });
+            }
+        });
     }
-    append_event(event)
+    return markers;
+}
 
+// ---------- Aggregation helpers ----------
 
-# ---------- API routes ----------
+function groupEventsByMinute(events) {
+    // Group events by minute (UTC)
+    const buckets = {};
+    events.forEach(ev => {
+        if (!ev.timestamp) return;
+        const d = new Date(ev.timestamp);
+        if (Number.isNaN(d.getTime())) return;
+        const key =
+            d.getUTCFullYear() + '-' +
+            String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getUTCDate()).padStart(2, '0') + ' ' +
+            String(d.getUTCHours()).padStart(2, '0') + ':' +
+            String(d.getUTCMinutes()).padStart(2, '0');
+        buckets[key] = (buckets[key] || 0) + 1;
+    });
+    const labels = Object.keys(buckets).sort();
+    const data = labels.map(l => buckets[l]);
+    return { labels, data };
+}
 
-@app.route("/api/stats", methods=["GET"])
-def api_stats():
-    """
-    Aggregate stats for the dashboard:
-      - totalEvents
-      - last24Hours
-      - eventsOverTime
-      - topIPs
-      - topPorts
-      - eventsByProtocol
-      - recentEvents
-      - geoPoints
-    """
-    with EVENTS_LOCK:
-        events = _load_events()
+function groupEventsByProtocol(events) {
+    const counts = {};
+    events.forEach(ev => {
+        const proto = ev.protocol || "Unknown";
+        counts[proto] = (counts[proto] || 0) + 1;
+    });
+    const labels = Object.keys(counts);
+    const data = labels.map(l => counts[l]);
+    return { labels, data };
+}
 
-    total_events = len(events)
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=24)
+// ---------- Chart updaters ----------
 
-    # Filter for last 24h and also parse timestamps
-    parsed_events = []
-    last24h_count = 0
-    for e in events:
-        ts = _parse_timestamp(e.get("timestamp"))
-        if ts is None:
-            continue
-        parsed_events.append((ts, e))
-        if ts >= cutoff:
-            last24h_count += 1
+function updateEventsOverTimeChart(events) {
+    const { labels, data } = groupEventsByMinute(events);
+    const canvas = document.getElementById('eventsOverTimeChart');
+    if (!canvas) return;
 
-    # Recent events: newest first, limited to 100
-    parsed_events.sort(key=lambda pair: pair[0], reverse=True)
-    recent_events = [e for _, e in parsed_events[:100]]
+    if (!eventsOverTimeChart) {
+        const ctx = canvas.getContext('2d');
+        eventsOverTimeChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Events',
+                    data,
+                    borderColor: '#22d3ee',
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { title: { display: true, text: 'Time (UTC)' } },
+                    y: { title: { display: true, text: 'Events' }, beginAtZero: true, ticks: { precision: 0 } }
+                }
+            }
+        });
+    } else {
+        eventsOverTimeChart.data.labels = labels;
+        eventsOverTimeChart.data.datasets[0].data = data;
+        eventsOverTimeChart.update();
+    }
 
-    # Events over time (by date)
-    by_date = defaultdict(int)
-    for ts, _e in parsed_events:
-        by_date[ts.date().isoformat()] += 1
-    events_over_time = [
-        {"date": d, "count": by_date[d]} for d in sorted(by_date.keys())
-    ]
+    if (labels.length === 0) {
+        canvas.parentElement.innerHTML =
+            '<div style="padding:2em;text-align:center;color:#888;">No data yet</div>';
+    }
+}
 
-    # Top IPs (by label)
-    ip_counter = Counter()
-    for _ts, e in parsed_events:
-        ip_counter[e.get("ip", "unknown")] += 1
-    top_ips = [
-        {"ip": ip, "count": count}
-        for ip, count in ip_counter.most_common(10)
-    ]
+function updateTopIPsChart(topIPs) {
+    const canvas = document.getElementById('topIPsChart');
+    if (!canvas) return;
 
-    # Top ports
-    port_counter = Counter()
-    for _ts, e in parsed_events:
-        port = e.get("port")
-        if port is None:
-            continue
-        port_counter[str(port)] += 1
-    top_ports = [
-        {"port": port, "count": count}
-        for port, count in port_counter.most_common(10)
-    ]
+    const labels = topIPs.map(ip => ip.ip || '');
+    const data = topIPs.map(ip => ip.count || 0);
 
-    # Events by protocol
-    proto_counter = Counter()
-    for _ts, e in parsed_events:
-        proto_counter[e.get("protocol", "UNKNOWN")] += 1
-    events_by_protocol = [
-        {"protocol": proto, "count": count}
-        for proto, count in proto_counter.most_common()
-    ]
+    if (!topIPsChart) {
+        const ctx = canvas.getContext('2d');
+        topIPsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Events',
+                    data,
+                    backgroundColor: '#22d3ee'
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, ticks: { precision: 0 } },
+                    y: { ticks: { autoSkip: false } }
+                }
+            }
+        });
+    } else {
+        topIPsChart.data.labels = labels;
+        topIPsChart.data.datasets[0].data = data;
+        topIPsChart.update();
+    }
 
-    # Geo points for map (IPv4 + IPv6)
-    geo_points = _build_geo_points([e for _ts, e in parsed_events])
+    if (labels.length === 0) {
+        canvas.parentElement.innerHTML =
+            '<div style="padding:2em;text-align:center;color:#888;">No IP data yet</div>';
+    }
+}
 
-    return jsonify(
-        {
-            "totalEvents": total_events,
-            "last24Hours": last24h_count,
-            "eventsOverTime": events_over_time,
-            "topIPs": top_ips,
-            "topPorts": top_ports,
-            "eventsByProtocol": events_by_protocol,
-            "recentEvents": recent_events,
-            "geoPoints": geo_points,
-            "maxEvents": MAX_EVENTS,
+function updateProtocolChart(events) {
+    const canvas = document.getElementById('protocolChart');
+    if (!canvas) return;
+
+    const { labels, data } = groupEventsByProtocol(events);
+
+    if (!protocolChart) {
+        const ctx = canvas.getContext('2d');
+        protocolChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Events',
+                    data,
+                    backgroundColor: [
+                        '#2563eb', '#22d3ee', '#f59e42', '#f43f5e',
+                        '#10b981', '#a78bfa', '#fbbf24', '#eab308'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    } else {
+        protocolChart.data.labels = labels;
+        protocolChart.data.datasets[0].data = data;
+        protocolChart.update();
+    }
+
+    if (labels.length === 0) {
+        canvas.parentElement.innerHTML =
+            '<div style="padding:2em;text-align:center;color:#888;">No protocol data yet</div>';
+    }
+}
+
+// ---------- Map updater ----------
+
+async function updateGeoMap() {
+    const mapEl = document.getElementById('geoMap');
+    if (!mapEl) return;
+
+    if (!geoMap) {
+        geoMap = L.map('geoMap').setView([0, 0], 1);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '© OpenStreetMap'
+        }).addTo(geoMap);
+    }
+
+    // Remove old markers
+    geoMarkers.forEach(m => geoMap.removeLayer(m));
+    geoMarkers = [];
+
+    const markers = await buildGeoMarkers();
+    if (markers.length > 0) {
+        markers.forEach(m => {
+            const marker = L.marker([m.lat, m.lng]).addTo(geoMap);
+            marker.bindPopup(m.popup);
+            geoMarkers.push(marker);
+        });
+    }
+}
+
+// ---------- Main stats fetch ----------
+
+async function fetchStats() {
+    try {
+        const response = await fetch(`${API_BASE}/api/stats`);
+        if (!response.ok) {
+            console.error('Stats request failed:', response.status, response.statusText);
+            return;
         }
-    )
 
+        const data = await response.json();
 
-@app.route("/admin", methods=["GET", "POST", "HEAD", "OPTIONS"])
-def admin_honeypot():
-    """
-    Fake /admin endpoint: always returns 404 but logs the request
-    as a honeypot event.
-    """
-    log_http_request(request)
-    # Deliberately mimic a generic 404 page (like Werkzeug's)
-    return (
-        "<!doctype html><html lang=en><title>404 Not Found</title>"
-        "<h1>Not Found</h1>"
-        "<p>The requested URL was not found on the server. "
-        "If you entered the URL manually please check your spelling and try again.</p>",
-        404,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
+        // High-level counters
+        const totalEl = document.getElementById('totalEvents');
+        const last24El = document.getElementById('last24h');
+        if (totalEl) totalEl.textContent = data.totalEvents ?? '0';
+        if (last24El) last24El.textContent = data.last24Hours ?? '0';
 
+        // Top IPs table
+        const topIPsBody = document.querySelector('#topIPs tbody');
+        if (topIPsBody) {
+            let ipRows = '';
+            (data.topIPs ?? []).forEach(ip => {
+                ipRows += `<tr><td>${ip.ip ?? ''}</td><td>${ip.count ?? ''}</td></tr>`;
+            });
+            topIPsBody.innerHTML = ipRows;
+        }
 
-@app.route("/")
-def health_root():
-    return jsonify({"status": "ok", "message": "Mini SIEM backend is running."})
+        // Top ports table
+        const topPortsBody = document.querySelector('#topPorts tbody');
+        if (topPortsBody) {
+            let portRows = '';
+            (data.topPorts ?? []).forEach(port => {
+                portRows += `<tr><td>${port.port ?? ''}</td><td>${port.count ?? ''}</td></tr>`;
+            });
+            topPortsBody.innerHTML = portRows;
+        }
 
+        // Recent events table
+        const recentBody = document.querySelector('#recentEvents tbody');
+        if (recentBody) {
+            let eventRows = '';
+            (data.recentEvents ?? []).forEach(ev => {
+                // Tag private/internal/external IPs
+                let ipClass = 'ip-external';
+                let ipLabel = '';
+                const ip = ev.ip_display ?? ev.ip ?? '';
 
-# ---------- Entrypoint ----------
+                if (/^127\./.test(ip)) {
+                    ipClass = 'ip-internal';
+                    ipLabel = ' <span style="color:#64748b;font-size:0.9em">(internal)</span>';
+                } else if (/^192\.168\./.test(ip) || /^10\./.test(ip) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) {
+                    ipClass = 'ip-internal';
+                    ipLabel = ' <span style="color:#64748b;font-size:0.9em">(LAN)</span>';
+                } else if (/\(internal\)$/.test(ip) || /fly\.internal$/.test(ip)) {
+                    ipClass = 'ip-internal';
+                    ipLabel = ' <span style="color:#64748b;font-size:0.9em">(Fly internal)</span>';
+                }
 
-# Ensure data dir and file exist
-DATA_DIR.mkdir(exist_ok=True)
-if not EVENTS_FILE.exists():
-    with EVENTS_FILE.open("w", encoding="utf-8") as f:
-        json.dump([], f)
+                // Synthesize message
+                let msg = '';
+                if (ev.protocol === 'HTTP') {
+                    msg = `HTTP ${ev.method || ''} ${ev.path || ''} from ${ip}`;
+                } else {
+                    msg = `Connection from ${ip}${ev.src_port ? ':' + ev.src_port : ''} via ${ev.protocol}`;
+                }
 
-# Start TCP honeypot listeners once when the module is imported / app starts
-start_trap_listeners()
+                eventRows += `<tr>
+                    <td>${ev.timestamp ?? ''}</td>
+                    <td class="${ipClass}">${ip}${ipLabel}</td>
+                    <td>${ev.port ?? ''}</td>
+                    <td>${ev.src_port ?? ''}</td>
+                    <td>${ev.protocol ?? ''}</td>
+                    <td>${ev.event_type ?? ''}</td>
+                    <td>${msg}</td>
+                    <td>${ev.user_agent ?? ''}</td>
+                    <td>${typeof ev.banner_sent === 'boolean' ? String(ev.banner_sent) : ''}</td>
+                </tr>`;
+            });
+            recentBody.innerHTML = eventRows;
+        }
 
-if __name__ == "__main__":
-    # Local dev runner
-    app.run(host="0.0.0.0", port=8080, debug=False)
+        // Geo-IP points from backend:
+        // support both "geoPoints" (current) and "geoIPs" (older)
+        window.latestGeoIPs = data.geoPoints || data.geoIPs || [];
+
+        // Update visualizations
+        updateEventsOverTimeChart(data.recentEvents ?? []);
+        updateTopIPsChart(data.topIPs ?? []);
+        updateProtocolChart(data.recentEvents ?? []);
+        await updateGeoMap();
+    } catch (err) {
+        console.error('Error fetching stats:', err);
+    }
+}
+
+// Initial fetch and polling
+fetchStats();
+setInterval(fetchStats, 5000);
