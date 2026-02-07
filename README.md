@@ -2,8 +2,8 @@
 
 # [![Netlify Status](https://api.netlify.com/api/v1/badges/fdafd745-8454-424a-80df-87d9e43e92aa/deploy-status)](https://app.netlify.com/projects/mini-siem-dashboard/deploys)
 
-🔴 Live demo: [https://mini-siem-dashboard.netlify.app/](https://mini-siem-dashboard.netlify.app/)  
-(Backend honeypot: [https://backend-weathered-voice-4887.fly.dev/](https://backend-weathered-voice-4887.fly.dev/))
+Demo currently offline as the honeypot is not continuously deployed to control operational costs.
+Source code, architecture, and sample dashboards are available in the repository.
 
 ![Mini SIEM Dashboard screenshot](public/screenshot.png)
 
